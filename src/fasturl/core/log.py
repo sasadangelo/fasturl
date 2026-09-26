@@ -10,8 +10,9 @@ import logging
 import sys
 from pathlib import Path
 from types import FrameType
+from typing import Any
 
-from loguru import FormatFunction, Logger, logger
+from loguru import logger
 
 APP_LOG_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
@@ -98,12 +99,10 @@ class LoggerManager:
             }
             return format_map["name" in record["extra"]]
 
-        fmt: FormatFunction = format_record  # type: ignore[assignment]
-
         if self.console:
             logger.add(
                 sink=sys.stdout,
-                format=fmt,
+                format=format_record,  # type: ignore[arg-type]
                 level=self.level,
                 colorize=True,
             )
@@ -112,7 +111,7 @@ class LoggerManager:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         logger.add(
             sink=self.file,
-            format=fmt,
+            format=format_record,  # type: ignore[arg-type]
             level=self.level,
             rotation=self.rotation,
             retention=self.retention,
@@ -129,7 +128,7 @@ class LoggerManager:
             log.propagate = False
 
     @staticmethod
-    def get_logger(name: str) -> Logger:
+    def get_logger(name: str) -> Any:
         """Return a logger bound to the given name (class or module).
 
         Args:

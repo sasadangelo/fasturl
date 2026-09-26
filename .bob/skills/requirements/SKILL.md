@@ -1,9 +1,9 @@
 ---
 name: requirements
-description: Use when the user wants to define the requirements of a system — interviews actors, goals, job stories, acceptance criteria, and constraints, then produces docs/requirements.md. This is the recommended first skill to run; its output feeds /domain-design which in turn feeds all other skills.
+description: Use when the user wants to define the requirements of a system — reads docs/idea.md if present, then optionally interviews actors, goals, job stories, acceptance criteria, and constraints, and produces docs/requirements.md. This is the recommended first skill to run; its output feeds /domain-design which in turn feeds all other skills.
 metadata:
   disable-model-invocation: false
-  argument-hint: "[system name]"
+  argument-hint: "[idea.md or system name]"
 ---
 
 # Requirements
@@ -46,7 +46,41 @@ If the user confirms the split:
 
 ---
 
-## Step 0 — Check for Existing Work
+## Step 0 — Check for `idea.md`
+
+Before checking for existing requirements, look for an idea file.
+
+**Lookup order:**
+1. The path passed as argument (e.g. `/requirements docs/idea.md`)
+2. `docs/idea.md` (default location)
+
+If found, read it with `read_file` and extract as much as possible:
+- **System name** — from the document title or first heading
+- **Overview / purpose** — from any overview, vision, or summary section
+- **Actors** — explicit actor lists, or infer from roles mentioned in the text
+- **Goals per actor** — from functional requirements, feature lists, or use-case descriptions
+- **Business constraints** — from constraints, rules, or out-of-scope sections
+- **Non-functional requirements** — performance, availability, security, compliance hints
+- **Out of scope** — explicit exclusions
+
+Use these extracted values to **pre-fill** Phases 1–3. Skip or shorten any interview question
+for which a clear answer was already found in `idea.md`.
+
+After reading `idea.md`, tell the user:
+> _"I found `<file>` and extracted the following context: system `<name>`, `<N>` actors,
+> `<M>` goals. I'll use this to pre-fill the requirements — I'll only ask about anything
+> that is missing or ambiguous."_
+
+If `idea.md` is **not found**, proceed normally — all interview questions remain active.
+
+**Re-run behaviour:** if `docs/requirements.md` already exists and `idea.md` has changed
+since the last run (the user says so, or the content clearly differs from the existing
+requirements), regenerate or patch the affected sections automatically using `apply_diff`,
+then report what changed.
+
+---
+
+## Step 1 — Check for Existing Work
 
 ```
 glob: docs/requirements/README.md
@@ -84,6 +118,8 @@ glob: docs/requirements.md
 ## Phase 1 — Interview
 
 Ask **one question at a time**. Do not proceed to the next until the user has answered.
+If the answer was already extracted from `idea.md`, state the extracted value and ask only
+for confirmation or correction — do not ask the user to re-type it.
 
 ### Q1 — System name
 

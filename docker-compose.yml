@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./instance:/app/instance
+      - ./logs:/app/logs
+    environment:
+      - APP__DEBUG=false
+      - DATABASE__URL=sqlite+aiosqlite:///instance/fasturl.db
+    restart: unless-stopped
