@@ -1,0 +1,22 @@
+app:
+  host: "127.0.0.1"
+  port: 8000
+  base_url: "http://localhost:8000"
+  debug: false
+  code_length: 7
+
+database:
+  url: "sqlite+aiosqlite:///instance/fasturl.db"
+  echo: false
+
+log:
+  level: "INFO"
+  console: true
+  file: "logs/fasturl.log"
+  rotation: "10 MB"
+  retention: "7 days"
+  compression: "zip"
+
+inspector:
+  timeout_seconds: 5.0
+  max_redirects: 3
