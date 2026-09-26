@@ -1,0 +1,45 @@
+[project]
+name = "fasturl"
+version = "0.1.0"
+description = "A Python project based on python-blueprint"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+  "pydantic>=2.3,<3",
+  "requests>=2.31.0,<3",
+]
+
+[dependency-groups]
+dev = [
+  "bandit>=1.8.6",
+  "coverage>=7.11.0",
+  "detect-secrets>=1.5.0",
+  "mypy>=1.18.2",
+  "poethepoet>=0.37.0",
+  "pre-commit>=3.8.0",
+  "pytest>=8.4.2",
+  "radon>=6.0.1",
+  "ruff>=0.8.0",
+]
+
+[tool.ruff]
+exclude = [".venv", "__pycache__", "build", "dist", "*.egg-info"]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+ignore = []
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.isort]
+lines-between-types = 0
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
