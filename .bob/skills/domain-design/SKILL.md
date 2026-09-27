@@ -1,6 +1,6 @@
 ---
 name: domain-design
-description: Use when the user wants to design the domain model of a system — guides through an interview to identify entities, value objects, aggregates, domain events, and bounded contexts, then produces docs/domain-design.md. Run after /requirements if available; its output feeds /architecture, /db-designer, and /cli-design.
+description: Use when the user wants to design the domain model of a system — guides through an interview to identify entities, value objects, aggregates, domain events, and bounded contexts, then produces docs/domain-design.md. Run after /requirements if available; its output feeds /architecture, /db-design, and /cli-design.
 metadata:
   disable-model-invocation: false
   argument-hint: "[domain description]"
@@ -475,7 +475,7 @@ _(repeat for each context)_
 
   ```
   ask_followup_question: "What would you like to do next?"
-  suggestion_a: "Design the database schema — run /db-designer (reads this document)"
+  suggestion_a: "Design the database schema — run /db-design (reads this document)"
   suggestion_b: "Scaffold the project architecture — run /architecture (reads this document)"
   suggestion_c: "Design the CLI interface — run /cli-design (reads this document)"
   suggestion_d: "Add more domain events, refine aggregates, or the design is complete for now"

@@ -396,7 +396,7 @@ Then prompt for next steps:
 ```
 ask_followup_question: "What would you like to do next?"
 suggestion_a: "Adapt the Python project structure to the chosen framework — run /python-framework"
-suggestion_b: "Design the database schema — run /db-designer"
+suggestion_b: "Design the database schema — run /db-design"
 suggestion_c: "Design the CLI interface — run /cli-design"
 suggestion_d: "The technology stack is complete for now"
 ```

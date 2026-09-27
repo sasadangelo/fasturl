@@ -1,12 +1,12 @@
 ---
-name: db-designer
+name: db-design
 description: Use when the user wants to design a database schema — can be run at any point in the development process as long as docs/domain-design.md exists. Derives tables, columns, PKs, FKs, and normalisation from the domain model and produces docs/db-design.md and sql/schema.sql.
 metadata:
   disable-model-invocation: false
   argument-hint: "[domain description]"
 ---
 
-# Database Designer
+# Database Design
 
 A structured, phase-by-phase workflow for designing a relational database schema.
 
@@ -51,12 +51,42 @@ Read whichever exists (folder README takes priority).
 
 **If `docs/domain-design.md` does not exist:**
 - Stop immediately and tell the user:
-  _"No domain design found. `/db-designer` can be run at any point in the development process,
+  _"No domain design found. `/db-design` can be run at any point in the development process,
   but it requires `docs/domain-design.md` as its only prerequisite. Please run `/domain-design`
-  first, then come back and run `/db-designer` whenever you are ready to design the database."_
+  first, then come back and run `/db-design` whenever you are ready to design the database."_
 - Do not proceed further.
 
-### 0.2 — Existing DB design
+### 0.2 — Optional context documents (architecture & API design)
+
+```
+glob: docs/architecture/README.md
+glob: docs/architecture.md
+glob: docs/api-design.md
+```
+
+These documents are **optional** — `/db-design` does not require them, but when they exist they
+provide valuable context that improves the schema design:
+
+**If `docs/architecture.md` is found:**
+- Extract: DB engine (if recorded), ORM choice, async model, deployment target, background
+  processing strategy.
+- Use the DB engine to drive DDL syntax (Phase 3 column types and Phase 4 SQL output).
+- Note any multi-worker or horizontal-scaling constraints that may influence index or locking
+  decisions.
+
+**If `docs/api-design.md` is found:**
+- Extract: exposed resources, identifier strategy (`public_id` / `code` / UUID), query filter
+  parameters, pagination model, and any endpoint that writes or reads from the DB.
+- Use this to validate that every API-exposed identifier has a `UNIQUE` index and that
+  collection filter columns are covered by indexes.
+- Cross-check PK exposure rules (no integer PK exposed externally).
+
+If neither document exists, proceed normally — these checks are informational only and will not
+block progress.
+
+---
+
+### 0.3 — Existing DB design
 
 ```
 glob: docs/db-design/README.md
@@ -88,7 +118,7 @@ Read whichever doc exists (folder README takes priority).
 
 **If neither file exists:**
 
-### 0.3 — Schema discovery (existing project)
+### 0.4 — Schema discovery (existing project)
 
 Before proceeding to Phase 2 from scratch, scan for existing schema artefacts:
 
