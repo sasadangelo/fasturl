@@ -1,6 +1,6 @@
 ---
 name: framework
-description: Use when the user wants to choose the technology stack for a system — interviews about system type, language, team skills, and constraints, then recommends the best stack and produces docs/tech-stack.md. Language-agnostic. Requires /architecture to have been run first. Run before any language-specific skill (e.g. /python-framework).
+description: Use when the user wants to choose the technology stack for a system — interviews about system type, language, team skills, and constraints, then recommends the best stack and produces docs/tech-stack.md. Language-agnostic. Requires /architecture to have been run first. Its output feeds /db-design, /python-init (Python projects), and eventually /api-design or /cli-design depending on the project type.
 metadata:
   disable-model-invocation: false
   argument-hint: "[language]"

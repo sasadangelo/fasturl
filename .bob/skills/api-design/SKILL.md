@@ -1,6 +1,6 @@
 ---
 name: api-design
-description: Use when designing, reviewing, or documenting a REST API for any project — translates domain design, architecture, and requirements into framework-agnostic RESTful API specifications following strict HTTP semantics, interactive resource selection, clean modeling, scalable pagination, asynchronous job patterns, and standardized contracts.
+description: Use when designing, reviewing, or documenting a REST API for any project — translates domain design, architecture, requirements, and db-design into framework-agnostic RESTful API specifications following strict HTTP semantics, interactive resource selection, clean modeling, scalable pagination, asynchronous job patterns, and standardized contracts. Run after /db-design; its output feeds /python-api.
 ---
 
 # REST API Design Skill

@@ -1,6 +1,6 @@
 ---
 name: python-framework
-description: Use when the user wants to adapt a Python project structure to the framework chosen in docs/tech-stack.md — creates framework-specific folders, stub files, entry points, and pyproject.toml dependencies. Requires /framework and /python-init to have been run first.
+description: Use when the user wants to adapt a Python project structure to the framework chosen in docs/tech-stack.md — creates framework-specific folders, stub files, entry points, and pyproject.toml dependencies. Requires /framework and /python-init to have been run first. After this, run /python-config and /python-log, then proceed to the project-type path: /api-design → /python-api for REST APIs, or /cli-design → /python-cli for CLIs.
 metadata:
   disable-model-invocation: false
   argument-hint: "[framework]"

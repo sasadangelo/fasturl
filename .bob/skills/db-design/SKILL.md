@@ -1,6 +1,6 @@
 ---
 name: db-design
-description: Use when the user wants to design a database schema — can be run at any point in the development process as long as docs/domain-design.md exists. Derives tables, columns, PKs, FKs, and normalisation from the domain model and produces docs/db-design.md and sql/schema.sql.
+description: Use when the user wants to design a database schema — run after /framework and before /api-design or /cli-design. Requires docs/domain-design.md. Derives tables, columns, PKs, FKs, and normalisation from the domain model and produces docs/db-design.md and sql/schema.sql.
 metadata:
   disable-model-invocation: false
   argument-hint: "[domain description]"

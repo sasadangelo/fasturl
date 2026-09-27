@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: Use when the user wants to define the software architecture of a Python project — interviews the user about non-functional requirements, recommends the best pattern, writes docs/architecture.md, then scaffolds the folder structure. Requires /domain-design to have been run first.
+description: Use when the user wants to define the software architecture of a project — interviews the user about non-functional requirements, recommends the best pattern, writes docs/architecture.md, then scaffolds the folder structure. Requires /domain-design to have been run first. Run before /framework.
 metadata:
   disable-model-invocation: false
   argument-hint: "[pattern]"
