@@ -1,5 +1,5 @@
 # Domain Design — FastURL
-_Last updated: 2025-05-15_
+_Last updated: 2025-05-22_
 
 ## Overview
 FastURL is a high-performance URL shortening and link inspection domain. It provides core capabilities to convert long URLs into compact 7-character Base62 keys, resolve short links via HTTP 307/302 redirects while tracking click metrics, and perform asynchronous, non-blocking health checks and OpenGraph metadata extractions on destination URLs.
@@ -33,6 +33,7 @@ FastURL is a high-performance URL shortening and link inspection domain. It prov
   - Created via `POST /api/v1/links` in `pending_analysis` state.
   - Updated asynchronously when `LinkInspected` event/task completes.
   - Read & updated (metrics) on public `GET /{code}` redirect.
+  - Re-inspected on demand via `POST /api/v1/links/{code}/inspect`.
   - Deactivated / soft-deleted via `DELETE /api/v1/links/{code}`.
 
 ## Value Objects / Validated Types
@@ -77,12 +78,13 @@ FastURL is a high-performance URL shortening and link inspection domain. It prov
   5. Incrementing `clicks_count` must automatically update `last_clicked_at`.
 
 ## Domain Events
-| Event             | Trigger                                               | Payload                                                                        | Consumers                                                  |
-|-------------------|-------------------------------------------------------|--------------------------------------------------------------------------------|------------------------------------------------------------|
-| `LinkCreated`     | Short link successfully persisted                     | `link_id`, `code`, `target_url`, `created_at`                                  | `BackgroundInspector` (dispatches async HTTP health check) |
-| `LinkRedirected`  | Visitor accesses short URL and redirect is served     | `code`, `clicked_at`                                                           | `MetricsService` (updates click count & last accessed)     |
-| `LinkInspected`   | Background HTTP check & metadata extraction completes | `link_id`, `status`, `http_status_code`, `latency_ms`, `title`, `description` | `LinkRepository` (updates inspection snapshot)             |
-| `LinkDeactivated` | Link is deleted/disabled by API client                | `link_id`, `code`, `deactivated_at`                                            | `CacheService` / Internal state                            |
+| Event                        | Trigger                                                          | Payload                                                                        | Consumers                                                  |
+|------------------------------|------------------------------------------------------------------|--------------------------------------------------------------------------------|------------------------------------------------------------|
+| `LinkCreated`                | Short link successfully persisted                                | `link_id`, `code`, `target_url`, `created_at`                                  | `BackgroundInspector` (dispatches async HTTP health check) |
+| `LinkRedirected`             | Visitor accesses short URL and redirect is served                | `code`, `clicked_at`                                                           | `MetricsService` (updates click count & last accessed)     |
+| `LinkInspected`              | Background HTTP check & metadata extraction completes            | `link_id`, `status`, `http_status_code`, `latency_ms`, `title`, `description` | `LinkRepository` (updates inspection snapshot)             |
+| `LinkReInspectionRequested`  | API client explicitly requests a new background inspection       | `link_id`, `code`, `requested_at`                                              | `BackgroundInspector` (re-dispatches async health check)   |
+| `LinkDeactivated`            | Link is deleted/disabled by API client                           | `link_id`, `code`, `deactivated_at`                                            | `CacheService` / Internal state                            |
 
 ## Bounded Contexts
 ### LinkManagement Context
@@ -123,14 +125,16 @@ graph LR
 1. **Single Entity (`Link`) with Validated Types**: `Link` is the sole Entity / Aggregate Root. `ShortCode` and `TargetUrl` are modelled as validated types (Value Objects) attached directly to `Link` attributes rather than standalone entities or separate tables, keeping the codebase clean and idiomatic for FastAPI.
 2. **Base62 7-Character Keyspace**: Auto-generated codes use `[a-zA-Z0-9]` offering ~3.5 trillion combinations, avoiding guessability and URL-encoding issues associated with standard Base64 symbols (`+`, `/`).
 3. **Lazy Expiration (410 Gone)**: Expiration checks happen upon resolution (`now() > expires_at`). This avoids complex scheduled purge jobs while guaranteeing expired links stop redirecting.
-4. **Decoupled Asynchronous Inspection**: Inspection runs in FastAPI background tasks (`BackgroundTasks`) using `httpx.AsyncClient` without blocking the initial `POST /api/v1/links` HTTP 201 response.
+4. **Decoupled Asynchronous Inspection**: Inspection runs in FastAPI background tasks (`BackgroundTasks`) using `httpx.AsyncClient` without blocking the initial `POST /api/v1/links` HTTP 201 response. The same mechanism is reused for manual re-inspection (`LinkReInspectionRequested`).
 5. **Embedded Value Object for Metrics & Inspection**: For educational clarity and single-node SQLite simplicity, `LinkMetrics` and `LinkInspection` are modelled as cohesive parts of the `Link` aggregate rather than separate database tables, while maintaining clean domain separation.
+6. **`code` as sole public identifier**: The Base62 `code` is non-sequential and non-enumerable, making a separate `public_id` (UUID) column redundant. The internal `id` (integer PK) is never exposed via the API.
 
 ## Open Questions
 - In a multi-worker production environment, should domain events be dispatched over an external message queue (e.g. Redis Streams / RabbitMQ)? *(Current decision: in-process FastAPI BackgroundTasks for simplicity and zero external dependencies).*
 
 ## Change Log
-| Version | Date       | Change                                                                                                       |
-|---------|------------|--------------------------------------------------------------------------------------------------------------|
-| 0.1     | 2025-05-15 | Initial domain design based on requirements and idea document                                                |
-| 0.2     | 2025-05-15 | Clarified ShortCode and TargetUrl as validated types/VOs on the Link entity, avoiding extra entity overhead |
+| Version | Date       | Change                                                                                                        |
+|---------|------------|---------------------------------------------------------------------------------------------------------------|
+| 0.1     | 2025-05-15 | Initial domain design based on requirements and idea document                                                 |
+| 0.2     | 2025-05-15 | Clarified ShortCode and TargetUrl as validated types/VOs on the Link entity, avoiding extra entity overhead   |
+| 0.3     | 2025-05-22 | Added `LinkReInspectionRequested` event; added design decision #6 (`code` as sole public identifier)          |

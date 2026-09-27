@@ -1,5 +1,5 @@
 # Requirements — FastURL
-_Last updated: 2025-05-15_
+_Last updated: 2025-05-22_
 
 ## Overview
 FastURL is a high-performance REST API built with FastAPI that provides URL shortening capabilities (creation, resolution, metrics tracking) coupled with non-blocking, asynchronous background link health inspection and metadata extraction. It is designed as a production-ready service demonstrating clean layered architecture, async persistence, fail-fast configuration, and standardized error contracts.
@@ -92,6 +92,20 @@ FastURL is a high-performance REST API built with FastAPI that provides URL shor
 
 ---
 
+#### JS-008 — Manually Trigger Link Re-Inspection
+**When** I want to re-check the health of a target URL (e.g., a previously unreachable link may have recovered), **I want to** trigger a new background inspection on demand, **so that** I can refresh the inspection status without waiting for automatic re-inspection.
+
+**Acceptance criteria:**
+- **Given** an existing link code (active or unreachable), **When** I send `POST /api/v1/links/{code}/inspect`, **Then** the system returns HTTP `202 Accepted` with the current inspection snapshot (status, timestamps) and dispatches a new background inspection task.
+- **Given** a non-existent link code, **When** I send `POST /api/v1/links/{code}/inspect`, **Then** the system returns HTTP `404 Not Found`.
+- **Given** a link whose inspection is already in `pending_analysis` state, **When** I send `POST /api/v1/links/{code}/inspect`, **Then** the system still accepts the request and re-queues the task (idempotent trigger).
+
+**Edge cases / notes:**
+- The endpoint returns immediately; inspection result is visible via `GET /api/v1/links/{code}` once the background task completes.
+- Inspection respects the same configurable timeout and max-redirect limits as the automatic post-creation inspection.
+
+---
+
 ## Business Constraints
 1. **Self-Redirection Prevention**: A target URL cannot point to the FastURL base URL or create a recursive redirect loop.
 2. **Code Uniqueness & Keyspace**: Link codes/aliases must be strictly unique. Auto-generated keys use a 7-character Base62 keyspace (`[a-zA-Z0-9]`) to avoid predictability.
@@ -99,6 +113,8 @@ FastURL is a high-performance REST API built with FastAPI that provides URL shor
 4. **Non-blocking Creation**: The link creation endpoint `POST /api/v1/links` MUST respond immediately to the client without waiting for the link inspection HTTP request to finish.
 5. **Redirect Semantics (307/302 vs 301)**: Redirections MUST use temporary redirect status codes (307/302) to prevent aggressive browser caching and preserve click tracking.
 6. **Standardized Error Envelope**: All API errors must follow the unified `{ "success": false, "error": string, "details": list }` schema.
+
+7. **Manual Re-Inspection**: Clients can trigger re-inspection of any existing link via `POST /api/v1/links/{code}/inspect`. The endpoint responds immediately with `202 Accepted`; inspection runs asynchronously.
 
 ## Non-Functional Requirements
 | Category                    | Requirement                                                                                                                                           |
@@ -126,3 +142,4 @@ FastURL is a high-performance REST API built with FastAPI that provides URL shor
 |---------|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.1     | 2025-05-15 | Initial requirements extracted from idea.md covering Link CRUD, Redirection, and Background Inspection                                                    |
 | 0.2     | 2025-05-15 | Integrated key system design concepts: Base62 7-char keyspace, temporary redirect semantics (307/302 for metrics), and lazy link expiration (410 Gone)   |
+| 0.3     | 2025-05-22 | Added JS-008 (Manual Re-Inspection trigger) and Business Constraint #7                                                                                    |

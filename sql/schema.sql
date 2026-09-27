@@ -7,15 +7,13 @@
 
 -- links: shortened URL aggregate — owns ShortCode, TargetUrl, LinkMetrics,
 --        and LinkInspection value objects as embedded columns.
--- Last modified: 2025-05-15
+-- Last modified: 2025-05-22
 CREATE TABLE IF NOT EXISTS links (
     -- Internal surrogate PK (never exposed via API)
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    -- External identifier (UUID stored as TEXT — exposed in API responses)
-    public_id       TEXT    NOT NULL,
-
     -- ShortCode VO: Base62 alphanumeric, 7–16 characters
+    -- Acts as the sole public identifier (no UUID needed — non-enumerable by design)
     code            TEXT    NOT NULL,
 
     -- TargetUrl VO: validated HTTP/HTTPS destination URL
@@ -45,7 +43,6 @@ CREATE TABLE IF NOT EXISTS links (
     updated_at      TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     -- Constraints
-    CONSTRAINT uq_links_public_id   UNIQUE (public_id),
     CONSTRAINT uq_links_code        UNIQUE (code),
     CONSTRAINT chk_links_code_len   CHECK  (length(code) BETWEEN 7 AND 16),
     CONSTRAINT chk_links_is_active  CHECK  (is_active IN (0, 1)),
@@ -58,11 +55,10 @@ CREATE TABLE IF NOT EXISTS links (
 -- Indexes after all CREATE TABLE statements
 
 -- Primary query paths:
---   GET /{code}            → lookup by code (redirect path, hot)
+--   GET /{code}              → lookup by code (redirect path, hot)
 --   GET /api/v1/links/{code} → lookup by code (management API)
---   GET /api/v1/links/     → list all (scan, no index needed)
+--   GET /api/v1/links/       → list all (scan, no index needed)
 CREATE INDEX IF NOT EXISTS idx_links_code       ON links (code);
-CREATE INDEX IF NOT EXISTS idx_links_public_id  ON links (public_id);
 
 -- Useful for listing only active links or filtering by expiry
 CREATE INDEX IF NOT EXISTS idx_links_is_active  ON links (is_active);

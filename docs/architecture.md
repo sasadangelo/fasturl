@@ -1,5 +1,5 @@
 # Architecture — FastURL
-_Last updated: 2025-05-15_
+_Last updated: 2025-05-22_
 
 ## Overview
 FastURL is a demo URL-shortening REST API built with FastAPI, designed to illustrate clean layered architecture in a real-world context for two blog articles. This document records the architectural decision and the resulting folder structure.
@@ -160,6 +160,29 @@ api/routers/redirect.py     ← returns HTTP 307 Temporary Redirect (Location: t
 
 ---
 
+### JS-008 — Manual re-inspection trigger
+
+```
+POST /api/v1/links/{code}/inspect
+      │
+      ▼
+api/routers/links.py        ← resolves {code}, returns 404 if not found
+      │
+      ▼
+services/link_service.py    ← fetches Link, resets inspection_status to 'pending_analysis',
+      │                        calls repository to persist status reset
+      ▼
+repositories/link_repo.py   ← async UPDATE inspection_status = 'pending_analysis'
+      │
+      ▼
+api/routers/links.py        ← returns HTTP 202 Accepted + dispatches BackgroundTask(inspect_link)
+      │
+      ▼ (async, non-blocking)
+services/inspector_service.py ← same inspection logic as post-creation background task
+```
+
+---
+
 ### JS-007 — Background inspection
 
 ```
@@ -274,7 +297,8 @@ FastAPI app (main.py)
 ---
 
 ## Change Log
-| Version | Date       | Change                                                                    |
-|---------|------------|---------------------------------------------------------------------------|
-| 0.1     | 2025-05-15 | Initial architecture decision — layered by layer, FastAPI monolith        |
-| 0.2     | 2025-05-15 | Added Component Design, Cross-Cutting Concerns, Request Flow Diagram      |
+| Version | Date       | Change                                                                          |
+|---------|------------|---------------------------------------------------------------------------------|
+| 0.1     | 2025-05-15 | Initial architecture decision — layered by layer, FastAPI monolith              |
+| 0.2     | 2025-05-15 | Added Component Design, Cross-Cutting Concerns, Request Flow Diagram            |
+| 0.3     | 2025-05-22 | Added JS-008 component design (manual re-inspection trigger)                    |
