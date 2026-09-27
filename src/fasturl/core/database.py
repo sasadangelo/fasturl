@@ -42,7 +42,7 @@ async def init_db() -> None:
     global _engine, _session_factory
 
     _engine = create_async_engine(
-        settings.database.url,
+        url=settings.database.url,
         echo=settings.database.echo,
     )
     _session_factory = async_sessionmaker(
