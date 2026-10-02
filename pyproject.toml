@@ -27,6 +27,7 @@ dev = [
   "pre-commit>=3.8.0",
   "pytest>=8.4.2",
   "pytest-asyncio>=0.25",
+  "pytest-cov>=7.1.0",
   "radon>=6.0.1",
   "ruff>=0.8.0",
 ]
@@ -52,3 +53,14 @@ skip-magic-trailing-comma = false
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:fastapi.*",
+]
+
+[tool.poe.tasks]
+test-unit        = "pytest tests/unit -v"
+test-integration = "pytest tests/integration -v"
+test             = "pytest tests/ -v"
+test-cov         = "pytest tests/ --cov=src --cov-report=term-missing"

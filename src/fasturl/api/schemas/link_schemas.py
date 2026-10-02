@@ -13,7 +13,7 @@ these shapes, preventing internal fields from leaking.
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from re import Pattern
 from typing import Annotated, TypeAlias
 
@@ -79,7 +79,7 @@ class LinkCreateRequest(BaseModel):
     def validate_expires_at_future(self) -> LinkCreateRequest:
         """Reject expiration dates that are not in the future."""
         if self.expires_at is not None:
-            now = datetime.utcnow()
+            now = datetime.now(UTC).replace(tzinfo=None)
             # Strip tzinfo for naive comparison — both should be UTC
             expires = self.expires_at.replace(tzinfo=None)
             if expires <= now:

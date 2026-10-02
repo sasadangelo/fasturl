@@ -11,7 +11,7 @@ a Link record?"
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.engine.result import Result
@@ -105,7 +105,7 @@ class LinkRepository:
         result: Result[int] = await self._session.execute(
             update(table=Link)
             .where(Link.code == code)
-            .values(is_active=False, updated_at=datetime.utcnow())
+            .values(is_active=False, updated_at=datetime.now(UTC).replace(tzinfo=None))
             .returning(Link.id)
         )
         await self._session.commit()
@@ -131,7 +131,7 @@ class LinkRepository:
                 description=None,
                 image_url=None,
                 last_checked_at=None,
-                updated_at=datetime.utcnow(),
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
             )
             .returning(Link.id)
         )
@@ -170,8 +170,8 @@ class LinkRepository:
                 title=title,
                 description=description,
                 image_url=image_url,
-                last_checked_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                last_checked_at=datetime.now(UTC).replace(tzinfo=None),
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
             )
         )
         await self._session.commit()

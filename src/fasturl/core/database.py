@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from fasturl.core.config import settings
+from fasturl.models.link import Base
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -50,6 +51,10 @@ async def init_db() -> None:
         class_=AsyncSession,
         expire_on_commit=False,
     )
+
+    # Create all tables if they do not exist yet (idempotent)
+    async with _engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import random
 import string
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import LiteralString
 
 from loguru import logger
@@ -167,7 +167,7 @@ class LinkService:
                 _log.error("Failed to generate a unique code after max retries")
                 raise ValidationError(["code -> Could not generate a unique short code. Please try again."])
 
-        now: datetime = datetime.utcnow()
+        now: datetime = datetime.now(UTC).replace(tzinfo=None)
         link: Link = Link(
             code=code,
             target_url=target_url,
@@ -293,7 +293,7 @@ class LinkService:
 
         if link.expires_at is not None:
             expires = link.expires_at.replace(tzinfo=None) if link.expires_at.tzinfo else link.expires_at
-            if datetime.utcnow() > expires:
+            if datetime.now(UTC).replace(tzinfo=None) > expires:
                 raise LinkExpiredError(code, expired_at=link.expires_at.isoformat())
 
         return link.target_url
