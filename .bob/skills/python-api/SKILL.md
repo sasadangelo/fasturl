@@ -1,6 +1,6 @@
 ---
 name: python-api
-description: Use when implementing, scaffolding, or updating a REST API in Python (typically FastAPI) from an `api-design.md` specification — run after /requirements, /domain-design, /architecture, /framework, /db-design, and /api-design (in that order). Adapts to the project's selected architectural pattern (Layered by Layer, Layered by Component/Feature, Hexagonal/Ports & Adapters, Clean Architecture), enforces strict layer isolation, implements Pydantic v2 schemas with response_model data filtering, documented parameters (Path, Query, Annotated), standardized global exception handlers, essential production middlewares, idiomatic Dependency Injection (`Depends`), Lifespan resource management, connection pool limits & backpressure, event loop protection, scalable pagination (offset vs cursor), safe streaming responses (StreamingResponse), idempotent worker execution, and optional high-performance runtime optimizations (uvloop, httptools).
+description: Use when implementing, scaffolding, or updating a REST API in Python (typically FastAPI) from an `api-design.md` specification — run after /requirements, /domain-design, /architecture, /framework, /db-design, /python-db, and /api-design (in that order). Adapts to the project's selected architectural pattern (Layered by Layer, Layered by Component/Feature, Hexagonal/Ports & Adapters, Clean Architecture), enforces strict layer isolation, implements Pydantic v2 schemas with response_model data filtering, documented parameters (Path, Query, Annotated), standardized global exception handlers, essential production middlewares, idiomatic Dependency Injection (`Depends`), Lifespan resource management, event loop protection, scalable pagination (offset vs cursor), safe streaming responses (StreamingResponse), idempotent worker execution, and optional high-performance runtime optimizations (uvloop, httptools).
 ---
 
 # Python REST API Implementation Skill (FastAPI)
@@ -16,7 +16,8 @@ This skill translates a technology-agnostic REST API specification from `docs/ap
 | `docs/api-design.md` | **Required** | Endpoints, HTTP methods, parameters, status codes, pagination, async job contracts, response schemas |
 | `docs/architecture.md` | **Required** | Architecture pattern, organisation style, background processing strategy, folder layout, DB drivers, async model |
 | `docs/domain-design.md` | **Required** | Domain models, business invariants, aggregates, entities, value objects, domain exceptions |
-| `docs/db-design.md` / `sql/schema.sql` | **Recommended** | Table names, column names, FK relationships — used when implementing repository layer |
+| `docs/db-design.md` / `sql/schema.sql` | **Required** (if API uses DB) | Table names, column names, FK relationships |
+| `src/<pkg>/models/` + `src/<pkg>/repositories/` | **Required** (if API uses DB) | ORM models and repositories produced by `/python-db` |
 | `config.yaml` & `Settings` | **Recommended** | Centralized configuration via `pydantic-settings` |
 
 ---
@@ -83,7 +84,22 @@ Read whichever exists (folder README takes priority).
 - Extract: entities, aggregates, value objects, domain invariants, domain exceptions, bounded
   contexts.
 
-### 0.4 — DB design (recommended)
+### 0.4 — DB layer check (conditional — only if the API uses a database)
+
+First determine whether the API requires direct database access by inspecting `docs/api-design.md`
+and `docs/architecture.md`:
+
+**Signals that the API uses a DB:**
+- `docs/api-design.md` describes CRUD operations on persistent resources
+- `docs/architecture.md` mentions a database engine, ORM, or persistence layer
+- `docs/architecture.md` defines a repository or data-access layer
+
+**If the API is stateless** (proxy, transformer, aggregator, pure external-service consumer):
+- Skip this step entirely. No DB checks are needed.
+
+**If the API uses a DB:**
+
+#### 0.4.1 — DB design documents
 
 ```
 glob: docs/db-design/README.md
@@ -91,17 +107,36 @@ glob: docs/db-design.md
 glob: sql/schema.sql
 ```
 
+**If neither exists:**
+- Stop immediately and tell the user:
+  _"This API requires a database but no database design was found. Please run `/db-design` first
+  to produce `docs/db-design.md` and `sql/schema.sql`, then come back and run `/python-api`."_
+- Do not proceed further.
+
 **If found:**
 - Read whichever doc exists (folder README takes priority) and also `sql/schema.sql` if present.
 - Extract: table names, column names and types, FK relationships, unique indexes.
-- Use these to implement the ORM models and repository queries accurately — column names must
-  match the schema exactly.
 
-**If not found:**
-- Note to the user: _"No DB design found. Consider running `/db-design` before implementing the
-  repository layer — it defines table names and column types. Proceeding without it; ORM models
-  will be inferred from the domain design."_
-- Continue — db-design is recommended but not mandatory.
+#### 0.4.2 — ORM models and repositories
+
+```
+grep: "class.*DAO" in src/
+grep: "__tablename__" in src/
+glob: src/*/repositories/
+```
+
+**If ORM models (`<Entity>DAO`) and repository classes are not found:**
+- Stop immediately and tell the user:
+  _"This API requires a database but no ORM models or repositories were found. Please run
+  `/python-db` first to implement the database layer (`models/`, `repositories/`,
+  `core/database.py`), then come back and run `/python-api`."_
+- Do not proceed further.
+
+**If found:**
+- Read the discovered model and repository files.
+- Extract: DAO class names, table names, repository method signatures.
+- Use these directly in the dependency injection wiring and service layer.
+  **Do not regenerate or modify ORM models or repositories** — they are owned by `/python-db`.
 
 ---
 
@@ -233,53 +268,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 ---
 
-### C. Database Connection Pool Sizing & Backpressure
-```python
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from app.core.config import settings
-
-engine = create_async_engine(
-    settings.database.url,
-    echo=settings.database.echo,
-    pool_size=settings.database.pool_size if hasattr(settings.database, "pool_size") else 20,
-    max_overflow=settings.database.max_overflow if hasattr(settings.database, "max_overflow") else 10,
-    pool_timeout=30,  # Fail gracefully with timeout instead of hanging indefinitely
-)
-
-async_session_factory = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
-```
-
----
-
-### D. Idiomatic Dependency Injection (`Depends`)
+### C. Idiomatic Dependency Injection (`Depends`)
 ```python
 from typing import Annotated
 from collections.abc import AsyncGenerator
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 import httpx
-from app.db.session import async_session_factory
-from app.repositories.link_repository import LinkRepository
-from app.services.link_service import LinkService
+from <pkg>.core.database import get_db  # provided by /python-db
+from <pkg>.repositories.link_repository import LinkRepository  # provided by /python-db
+from <pkg>.services.link_service import LinkService
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with async_session_factory() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+# Re-export the session dependency from core.database (owned by /python-db)
+DBSessionDep = Annotated[AsyncSession, Depends(get_db)]
 
 def get_http_client(request: Request) -> httpx.AsyncClient:
     return request.app.state.http_client
 
-DBSessionDep = Annotated[AsyncSession, Depends(get_db_session)]
 HTTPClientDep = Annotated[httpx.AsyncClient, Depends(get_http_client)]
 
 def get_link_repository(session: DBSessionDep) -> LinkRepository:
@@ -436,21 +441,21 @@ uvicorn app.main:app --workers 4 --loop uvloop --http httptools --host 0.0.0.0 -
    - Read `docs/architecture.md` to identify the active pattern (`layered` by layer, `layered` by component, `layered` by feature, or `hexagonal`), background processing decision, and pagination/streaming requirements.
 2. **Review API Spec**:
    - Read `docs/api-design.md` and map endpoints, methods, and schemas to the architecture's interface/adapter layer.
-3. **Implement Lifespan, DB Pools & Core Infrastructure**:
-   - Configure `@asynccontextmanager` `lifespan` handler with bounded DB pools and shared async HTTP clients.
+3. **Implement Lifespan & Core Infrastructure**:
+   - Configure `@asynccontextmanager` `lifespan` handler — call `init_db()` / `close_db()` from `core/database.py` (owned by `/python-db`) and initialise shared async HTTP clients.
    - Register global exception handlers.
    - Configure essential middlewares (Correlation ID, Timing, Logging, CORS).
 4. **Setup Dependency Providers**:
-   - Define database session lifecycle provider (`get_db_session`).
+   - Import `get_db` from `core.database` (provided by `/python-db`) — do NOT redefine it.
    - Define provider for shared Lifespan resources (`get_http_client`).
    - Define factory dependencies for repositories and services (`Annotated[..., Depends(...)]`).
 5. **Implement Adapters & Schemas**:
    - Create Pydantic v2 Request & Response DTOs (`response_model`).
    - Implement **thin HTTP route handlers** with self-documenting parameter annotations (`Path`, `Query`, `Annotated`), summaries, descriptions, and injected service dependencies.
    - Apply cursor-based pagination or `StreamingResponse` where specified in `docs/api-design.md`.
-6. **Implement Business Logic, Repositories & Background Workers**:
+6. **Implement Business Logic & Background Workers**:
    - Implement **HTTP-agnostic Services** containing all domain decisions, validation rules, and caching logic.
-   - Implement **data-only Repositories** (no business calculations, explicit column projections).
+   - **Do NOT implement repositories here** — they are owned by `/python-db`. Import and use them as-is.
    - Implement background tasks / worker job patterns with idempotent execution.
    - Ensure event loop is protected (no sync blocking, offload CPU with `asyncio.to_thread`).
 7. **Wire Application Entrypoint (`main.py`)**:

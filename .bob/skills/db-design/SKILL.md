@@ -405,10 +405,10 @@ After writing/patching, report:
 
   ```
   ask_followup_question: "What would you like to work on next?"
-  suggestion_a: "Add more entities or relationships"
-  suggestion_b: "Refine columns or constraints for a specific table"
-  suggestion_c: "Define indexes based on queries I'll provide"
-  suggestion_d: "The design is complete for now"
+  suggestion_a: "Implement the database layer (ORM models + repositories) — run /python-db"
+  suggestion_b: "Add more entities or relationships"
+  suggestion_c: "Refine columns or constraints for a specific table"
+  suggestion_d: "Define indexes based on queries I'll provide"
   ```
 
 ---
