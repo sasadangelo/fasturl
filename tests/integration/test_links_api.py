@@ -25,7 +25,7 @@ from httpx._client import AsyncClient
 from httpx._models import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fasturl.models.link import Link
+from fasturl.models.link import LinkDAO
 from fasturl.repositories.link_repository import LinkRepository
 from fasturl.services.inspector_service import inspect_link
 
@@ -290,7 +290,7 @@ class TestTriggerInspection:
         """Re-triggering when status is already pending_analysis still returns 202."""
         post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
         code = post_resp.json()["code"]
-        # Link starts in pending_analysis — trigger again
+        # LinkDAO starts in pending_analysis — trigger again
         response: Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
         assert response.status_code == 202
 
@@ -308,9 +308,9 @@ class TestInspectLinkDirect:
         # Seed a link directly
         from datetime import datetime
 
-        from fasturl.models.link import Link
+        from fasturl.models.link import LinkDAO
 
-        link: Link = Link(
+        link: LinkDAO = LinkDAO(
             code="insp001",
             target_url="https://example.com",
             is_active=True,
@@ -336,7 +336,7 @@ class TestInspectLinkDirect:
         )
         await mock_client.aclose()
 
-        updated: Link | None = await repo.get_by_code(code="insp001")
+        updated: LinkDAO | None = await repo.get_by_code(code="insp001")
         assert updated is not None
         assert updated.inspection_status == "active"
         assert updated.title == "Example"
@@ -346,9 +346,9 @@ class TestInspectLinkDirect:
         """A timeout or request error sets inspection_status to 'unreachable'."""
         from datetime import datetime
 
-        from fasturl.models.link import Link
+        from fasturl.models.link import LinkDAO
 
-        link = Link(
+        link = LinkDAO(
             code="insp002",
             target_url="https://unreachable.example",
             is_active=True,
@@ -374,6 +374,6 @@ class TestInspectLinkDirect:
         )
         await mock_client.aclose()
 
-        updated: Link | None = await repo.get_by_code(code="insp002")
+        updated: LinkDAO | None = await repo.get_by_code(code="insp002")
         assert updated is not None
         assert updated.inspection_status == "unreachable"

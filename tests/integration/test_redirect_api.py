@@ -23,11 +23,11 @@ import httpx
 from httpx._models import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from fasturl.models.link import Link
+from fasturl.models.link import LinkDAO
 from fasturl.repositories.link_repository import LinkRepository
 
 # ---------------------------------------------------------------------------
-# Helper — seed a Link directly into the test DB
+# Helper — seed a LinkDAO directly into the test DB
 # ---------------------------------------------------------------------------
 
 
@@ -38,10 +38,10 @@ async def _seed_link(
     target_url: str = "https://example.com",
     is_active: bool = True,
     expires_at: datetime | None = None,
-) -> Link:
-    """Insert a Link record directly into the test database."""
+) -> LinkDAO:
+    """Insert a LinkDAO record directly into the test database."""
     now: datetime = datetime.now(UTC).replace(tzinfo=None)
-    link: Link = Link(
+    link: LinkDAO = LinkDAO(
         code=code,
         target_url=target_url,
         is_active=is_active,
@@ -92,7 +92,7 @@ class TestRedirectEndpoint:
         repo: LinkRepository = LinkRepository(db_session)
         # Expire the cached instance so SQLAlchemy re-fetches from the DB
         await db_session.commit()
-        updated: Link | None = await repo.get_by_code(code="redir02")
+        updated: LinkDAO | None = await repo.get_by_code(code="redir02")
         assert updated is not None
         assert updated.clicks_count == 1
 

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable
+from typing import Any, Protocol
 
 import httpx
 from loguru import logger
@@ -26,6 +28,71 @@ from loguru import logger
 from fasturl.repositories.link_repository import LinkRepository
 
 _log = logger.bind(name="InspectorService")
+
+
+# ---------------------------------------------------------------------------
+# Background task scheduler protocol — structural type satisfied by FastAPI's
+# BackgroundTasks. Defined here so the service layer never imports fastapi.
+# ---------------------------------------------------------------------------
+
+
+class BackgroundTaskScheduler(Protocol):
+    """Protocol for scheduling background tasks.
+
+    Any object with an ``add_task(func, *args, **kwargs)`` method satisfies
+    this — most notably FastAPI's ``BackgroundTasks``.  Defining it as a
+    ``Protocol`` keeps the service layer free of FastAPI imports while remaining
+    fully type-checkable.
+    """
+
+    def add_task(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> None:
+        """Register *func* to run after the response is sent."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Inspector service — dispatches and performs URL inspections
+# ---------------------------------------------------------------------------
+
+
+class InspectorService:
+    """Service for dispatching background URL inspections.
+
+    Holds the shared ``httpx.AsyncClient`` and knows how to schedule the
+    ``inspect_link`` coroutine as a background task via an injected
+    ``BackgroundTaskScheduler``.
+
+    Args:
+        http_client: Shared async HTTP client (created in application lifespan).
+    """
+
+    def __init__(self, http_client: httpx.AsyncClient) -> None:
+        self._http_client = http_client
+
+    def dispatch_inspection(
+        self,
+        scheduler: BackgroundTaskScheduler,
+        code: str,
+        target_url: str,
+        repository: LinkRepository,
+    ) -> None:
+        """Schedule a background inspection of *code*'s target URL.
+
+        Args:
+            scheduler: Anything implementing ``BackgroundTaskScheduler`` (e.g.
+                FastAPI's ``BackgroundTasks``).
+            code: The Base62 code of the link to inspect.
+            target_url: The destination URL to inspect.
+            repository: Data-access layer for persisting inspection results.
+        """
+        scheduler.add_task(
+            func=inspect_link,
+            code=code,
+            target_url=target_url,
+            http_client=self._http_client,
+            repository=repository,
+        )
+
 
 # Lightweight regex-based extractors — avoids a full HTML parser dependency
 _TITLE_RE = re.compile(r"<title[^>]*>([^<]+)</title>", re.IGNORECASE | re.DOTALL)

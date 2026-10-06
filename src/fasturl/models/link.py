@@ -4,7 +4,11 @@
 # -----------------------------------------------------------------------------
 """SQLAlchemy ORM model for the ``links`` table.
 
-The ``Link`` model represents the single Aggregate Root of the FastURL domain.
+The ``LinkDAO`` model represents the single Aggregate Root of the FastURL domain.
+It is a data-access object (DAO) — only the repository and service layers are
+permitted to import it. External layers (routers) interact with it only through
+the repository facade or response DTOs.
+
 All Value Objects (ShortCode, TargetUrl, LinkMetrics, LinkInspection) are
 stored as flat columns, following the single-table design in ``sql/schema.sql``.
 """
@@ -21,12 +25,12 @@ class Base(DeclarativeBase):
     """Shared declarative base for all ORM models."""
 
 
-class Link(Base):
+class LinkDAO(Base):
     """ORM representation of the ``links`` table.
 
     Attributes:
         id: Internal surrogate PK — never exposed via API.
-        code: Base62 ShortCode (7–16 chars) — sole public identifier.
+        code: Base62 ShortCode (7-16 chars) — sole public identifier.
         target_url: Validated destination URL (HTTP/HTTPS).
         is_active: Soft-delete flag; False means the link is disabled.
         expires_at: Optional expiration datetime; NULL means never expires.

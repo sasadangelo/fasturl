@@ -55,7 +55,7 @@ async def redirect_short_url(
     target_url: str = await service.resolve_for_redirect(code)
 
     background_tasks.add_task(
-        func=service._repository.increment_clicks,
+        func=service.increment_clicks,
         code=code,
     )
 

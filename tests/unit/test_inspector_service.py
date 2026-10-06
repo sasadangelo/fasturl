@@ -2,16 +2,23 @@
 # Copyright (c) 2025 Salvatore D'Angelo, Code4Projects
 # Licensed under the MIT License. See LICENSE.md for details.
 # -----------------------------------------------------------------------------
-"""Unit tests for InspectorService HTML extraction helpers.
+"""Unit tests for InspectorService.
 
-Scope: pure functions _extract_title, _extract_description, _extract_image_url.
-No HTTP calls, no DB. Each test provides a raw HTML string and asserts the
-extracted value.
+Scope:
+- Pure helper functions: _extract_title, _extract_description, _extract_image_url.
+- InspectorService.dispatch_inspection: verifies the background task is scheduled
+  with the correct callable and arguments.
+
+No HTTP calls, no DB. Each helper test provides a raw HTML string and asserts
+the extracted value. The dispatch test uses a mock scheduler.
 """
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 from fasturl.services.inspector_service import (
+    InspectorService,
     _extract_description,
     _extract_image_url,
     _extract_title,
@@ -109,3 +116,52 @@ class TestExtractImageUrl:
     def test_empty_html_returns_none(self) -> None:
         """An empty string returns None."""
         assert _extract_image_url("") is None
+
+
+# ---------------------------------------------------------------------------
+# InspectorService.dispatch_inspection
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchInspection:
+    """Tests for the background task dispatch logic."""
+
+    def test_dispatch_inspection_schedules_inspect_link_with_correct_args(self) -> None:
+        """dispatch_inspection registers inspect_link on the scheduler with all kwargs."""
+        import httpx
+
+        http_client: httpx.AsyncClient = httpx.AsyncClient()
+        inspector: InspectorService = InspectorService(http_client=http_client)
+        mock_scheduler: Mock = Mock()
+        mock_repository: Mock = Mock()
+
+        inspector.dispatch_inspection(
+            scheduler=mock_scheduler,
+            code="abc1234",
+            target_url="https://example.com",
+            repository=mock_repository,
+        )
+
+        mock_scheduler.add_task.assert_called_once()
+        call_kwargs = mock_scheduler.add_task.call_args.kwargs
+        assert call_kwargs["code"] == "abc1234"
+        assert call_kwargs["target_url"] == "https://example.com"
+        assert call_kwargs["http_client"] is http_client
+        assert call_kwargs["repository"] is mock_repository
+
+    def test_dispatch_inspection_uses_http_client_from_inspector(self) -> None:
+        """The http_client is sourced from the InspectorService, not passed by caller."""
+        import httpx
+
+        http_client: httpx.AsyncClient = httpx.AsyncClient()
+        inspector: InspectorService = InspectorService(http_client=http_client)
+        mock_scheduler: Mock = Mock()
+
+        inspector.dispatch_inspection(
+            scheduler=mock_scheduler,
+            code="xyz9876",
+            target_url="https://example.org",
+            repository=Mock(),
+        )
+
+        assert mock_scheduler.add_task.call_args.kwargs["http_client"] is http_client

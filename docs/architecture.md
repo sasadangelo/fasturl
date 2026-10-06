@@ -1,5 +1,5 @@
 # Architecture — FastURL
-_Last updated: 2025-05-22_
+_Last updated: 2025-05-23_
 
 ## Overview
 FastURL is a demo URL-shortening REST API built with FastAPI, designed to illustrate clean layered architecture in a real-world context for two blog articles. This document records the architectural decision and the resulting folder structure.
@@ -41,11 +41,11 @@ src/fasturl/
 │   └── schemas/
 │       └── __init__.py        ← Pydantic v2 request/response DTOs
 ├── services/
-│   └── __init__.py            ← business logic, code generation, URL validation
+│   └── __init__.py            ← business logic, code generation, URL validation, background task dispatch
 ├── repositories/
 │   └── __init__.py            ← async SQLAlchemy data access
 ├── models/
-│   └── __init__.py            ← SQLAlchemy ORM models (Link)
+│   └── __init__.py            ← SQLAlchemy ORM models (LinkDAO)
 └── core/
     ├── __init__.py
     ├── config.py               ← Pydantic Settings + config.yaml loader
@@ -55,13 +55,30 @@ src/fasturl/
 ### Layer responsibilities
 | Layer / Folder   | Responsibility                                                              |
 |------------------|-----------------------------------------------------------------------------|
-| `api/routers/`   | HTTP transport — path/query params, status codes, BackgroundTasks dispatch  |
+| `api/routers/`   | HTTP transport — path/query params, status codes, thin pass-through          |
 | `api/schemas/`   | Pydantic v2 DTOs — request validation and response serialisation            |
-| `services/`      | Business rules — Base62 generation, URL safety checks, expiration logic     |
+| `services/`      | Business rules — Base62 generation, URL safety, background inspection dispatch |
 | `repositories/`  | Async DB access — SQLAlchemy sessions, CRUD queries                         |
-| `models/`        | ORM models — SQLAlchemy `Link` table definition                             |
+| `models/`        | ORM models — SQLAlchemy `LinkDAO` table definition                          |
 | `core/config.py` | Typed configuration — Pydantic Settings, YAML + env var overrides           |
 | `core/log.py`    | Structured logging — Loguru setup with rotation, retention, compression     |
+
+### Dependency graph
+
+The service layer owns all business logic. Routers are thin transport adapters
+that parse HTTP inputs, invoke services, and pass the request-scoped
+`BackgroundTasks` object as a `BackgroundTaskScheduler`. The service layer
+never imports `fastapi` — it depends on a structural `Protocol` instead.
+
+```
+api/routers/links.py     ──Depends──►  _get_link_service()
+                                    │
+                                    ├─► repositories/link_repository.py  (LinkRepository)
+                                    │   └──► models/link.py  (LinkDAO)
+                                    │
+                                    └─► services/inspector_service.py  (InspectorService)
+                                        └──► services/inspector_service.py  (inspect_link coroutine)
+```
 
 ## Component Design
 
@@ -73,22 +90,23 @@ This section maps each functional requirement (from `docs/requirements.md`) to t
 POST /api/v1/links
       │
       ▼
-api/routers/links.py        ← validates HTTP request, calls service, dispatches BackgroundTask
+api/routers/links.py        ← validates HTTP request, calls service, passes BackgroundTasks
       │
       ▼
 services/link_service.py    ← generates Base62 code (or validates custom alias),
       │                        checks uniqueness, enforces URL safety rules,
-      │                        builds Link entity, calls repository
+      │                        builds LinkDAO entity, calls repository,
+      │                        dispatches inspection via InspectorService
       ▼
-repositories/link_repo.py   ← persists Link record via async SQLAlchemy session
+repositories/link_repository.py ← persists LinkDAO record via async SQLAlchemy session
       │
       ▼
-api/routers/links.py        ← returns HTTP 201 + dispatches BackgroundTask(inspect_link)
+api/routers/links.py        ← returns HTTP 201
       │
       ▼ (async, non-blocking)
 services/inspector_service.py ← performs httpx.AsyncClient request to target_url,
                                  extracts HTML title + OpenGraph tags,
-                                 updates LinkInspection via repository
+                                 updates inspection results via repository
 ```
 
 **Key rules enforced in `services/`:**
@@ -112,7 +130,7 @@ api/routers/links.py        ← extracts path/query params, pagination
 services/link_service.py    ← applies business filters (active-only, status enum)
       │
       ▼
-repositories/link_repo.py   ← async SELECT with optional WHERE + LIMIT/OFFSET
+repositories/link_repository.py   ← async SELECT with optional WHERE + LIMIT/OFFSET
       │
       ▼
 api/schemas/link_schemas.py ← serialises ORM model → Pydantic response DTO
@@ -132,7 +150,7 @@ api/routers/links.py        ← resolves {code}, returns 404 if not found
 services/link_service.py    ← sets is_active = False (soft delete)
       │
       ▼
-repositories/link_repo.py   ← async UPDATE, commits session
+repositories/link_repository.py   ← async UPDATE, commits session
       │
       ▼
 api/routers/links.py        ← returns HTTP 204 No Content
@@ -149,10 +167,11 @@ GET /{code}
 api/routers/redirect.py     ← separate router mounted at root path "/"
       │
       ▼
-services/link_service.py    ← resolves code → Link, checks is_active and expires_at
+services/link_service.py    ← resolves code → LinkDAO, checks is_active and expires_at,
+      │                        dispatches click increment via service.increment_clicks,
       │                        returns 404 (inactive), 410 (expired), or target_url
       ▼
-repositories/link_repo.py   ← async UPDATE clicks_count + last_clicked_at
+repositories/link_repository.py ← async UPDATE clicks_count + last_clicked_at
       │
       ▼
 api/routers/redirect.py     ← returns HTTP 307 Temporary Redirect (Location: target_url)
@@ -166,16 +185,17 @@ api/routers/redirect.py     ← returns HTTP 307 Temporary Redirect (Location: t
 POST /api/v1/links/{code}/inspect
       │
       ▼
-api/routers/links.py        ← resolves {code}, returns 404 if not found
+api/routers/links.py        ← resolves {code}, passes BackgroundTasks to service
       │
       ▼
-services/link_service.py    ← fetches Link, resets inspection_status to 'pending_analysis',
+services/link_service.py    ← fetches LinkDAO, resets inspection_status to 'pending_analysis',
+      │                        dispatches inspection via InspectorService + scheduler,
       │                        calls repository to persist status reset
       ▼
-repositories/link_repo.py   ← async UPDATE inspection_status = 'pending_analysis'
+repositories/link_repository.py   ← async UPDATE inspection_status = 'pending_analysis'
       │
       ▼
-api/routers/links.py        ← returns HTTP 202 Accepted + dispatches BackgroundTask(inspect_link)
+api/routers/links.py        ← returns HTTP 202 Accepted
       │
       ▼ (async, non-blocking)
 services/inspector_service.py ← same inspection logic as post-creation background task
@@ -197,7 +217,7 @@ services/inspector_service.py   (triggered via FastAPI BackgroundTasks after lin
       ├── on failure (4xx/5xx / timeout / DNS error):
       │                           set status = "unreachable"
       │
-      └── repositories/link_repo.py  ← async UPDATE LinkInspection snapshot on Link record
+      └── repositories/link_repository.py  ← async UPDATE LinkInspection snapshot on LinkDAO record
 ```
 
 ---
@@ -254,11 +274,11 @@ The background inspector uses `httpx.AsyncClient` with a shared client instance 
 ```
 main.py (lifespan)
     └── creates AsyncEngine + AsyncSessionFactory
-              │
-              ▼
+            │
+            ▼
 core/database.py   get_db() → AsyncSession   (FastAPI dependency)
-              │
-              ▼ injected into
+            │
+            ▼ injected into
 api/routers/*.py   → passed down to repositories
 ```
 
@@ -283,7 +303,7 @@ FastAPI app (main.py)
   │               │
   │               └── repositories/   ← async DB access
   │                       │
-  │                       └── models/   ← SQLAlchemy ORM
+  │                       └── models/   ← SQLAlchemy ORM (LinkDAO)
   │
   ├── api/routers/redirect.py   ← /{code}  (public redirect)
   │       └── services/ → repositories/
@@ -302,3 +322,4 @@ FastAPI app (main.py)
 | 0.1     | 2025-05-15 | Initial architecture decision — layered by layer, FastAPI monolith              |
 | 0.2     | 2025-05-15 | Added Component Design, Cross-Cutting Concerns, Request Flow Diagram            |
 | 0.3     | 2025-05-22 | Added JS-008 component design (manual re-inspection trigger)                    |
+| 0.4     | 2025-05-23 | Moved background-task dispatch from router to service layer; renamed `Link` → `LinkDAO`; added `InspectorService` and `BackgroundTaskScheduler` protocol |

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from fasturl.core.database import get_db
 from fasturl.repositories.link_repository import LinkRepository
+from fasturl.services.inspector_service import InspectorService
 from fasturl.services.link_service import LinkService
 
 # ---------------------------------------------------------------------------
@@ -82,16 +83,18 @@ LinkRepoDep: TypeAlias = Annotated[LinkRepository, Depends(dependency=_get_link_
 # ---------------------------------------------------------------------------
 
 
-def _get_link_service(repository: LinkRepoDep) -> LinkService:
-    """Construct the ``LinkService`` with its injected repository.
+def _get_link_service(repository: LinkRepoDep, http_client: HTTPClientDep) -> LinkService:
+    """Construct the ``LinkService`` with its injected repository and inspector.
 
     Args:
         repository: Injected ``LinkRepository``.
+        http_client: Shared async HTTP client for the ``InspectorService``.
 
     Returns:
-        A ``LinkService`` instance.
+        A ``LinkService`` instance with a fully-wired ``InspectorService``.
     """
-    return LinkService(repository=repository)
+    inspector: InspectorService = InspectorService(http_client=http_client)
+    return LinkService(repository=repository, inspector=inspector)
 
 
 LinkServiceDep: TypeAlias = Annotated[LinkService, Depends(dependency=_get_link_service)]

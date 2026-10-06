@@ -5,8 +5,8 @@
 """HTTP router for the ``/api/v1/links`` resource.
 
 Handlers are thin by design — they parse HTTP inputs, invoke the service layer
-via ``Depends``, dispatch background tasks, assign status codes, and return
-filtered DTOs. Zero business logic lives here.
+via ``Depends``, pass the request-scoped ``BackgroundTasks`` as a scheduler,
+assign status codes, and return filtered DTOs. Zero business logic lives here.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from typing import Annotated, TypeAlias
 from fastapi import APIRouter, BackgroundTasks, Path, Query, status
 from fastapi.responses import Response
 
-from fasturl.api.dependencies import HTTPClientDep, LinkServiceDep
+from fasturl.api.dependencies import LinkServiceDep
 from fasturl.api.schemas.link_schemas import LinkCreateRequest, LinkResponse
-from fasturl.services.inspector_service import inspect_link
+from fasturl.core.exceptions import ValidationError
 
 router: APIRouter = APIRouter(
     prefix="/api/v1/links",
@@ -66,23 +66,15 @@ _VALID_STATUSES = {"pending_analysis", "active", "unreachable"}
 async def create_link(
     body: LinkCreateRequest,
     service: LinkServiceDep,
-    http_client: HTTPClientDep,
     background_tasks: BackgroundTasks,
 ) -> LinkResponse:
     """Create a new shortened link and dispatch a background inspection."""
-    response: LinkResponse = await service.create_link(
+    return await service.create_link(
         target_url=str(body.target_url),
         custom_code=body.custom_code,
         expires_at=body.expires_at,
+        scheduler=background_tasks,
     )
-    background_tasks.add_task(
-        func=inspect_link,
-        code=response.code,
-        target_url=response.target_url,
-        http_client=http_client,
-        repository=service._repository,
-    )
-    return response
 
 
 @router.get(
@@ -122,8 +114,6 @@ async def list_links(
 ) -> list[LinkResponse]:
     """List links with optional filtering and sorting."""
     if status_filter is not None and status_filter not in _VALID_STATUSES:
-        from fasturl.core.exceptions import ValidationError
-
         raise ValidationError([f"status -> Must be one of: {', '.join(sorted(_VALID_STATUSES))}"])
 
     return await service.list_links(
@@ -185,16 +175,7 @@ async def delete_link(
 async def trigger_inspection(
     code: _CodePath,
     service: LinkServiceDep,
-    http_client: HTTPClientDep,
     background_tasks: BackgroundTasks,
 ) -> LinkResponse:
     """Reset inspection state and dispatch a new background inspection task."""
-    response: LinkResponse = await service.trigger_reinspection(code)
-    background_tasks.add_task(
-        inspect_link,
-        code=response.code,
-        target_url=response.target_url,
-        http_client=http_client,
-        repository=service._repository,
-    )
-    return response
+    return await service.trigger_reinspection(code, scheduler=background_tasks)

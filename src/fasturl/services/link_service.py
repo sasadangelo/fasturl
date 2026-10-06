@@ -5,11 +5,14 @@
 """Business logic service for the Link aggregate.
 
 This service is the brain of the application. It enforces all domain invariants,
-orchestrates repositories, generates short codes, and validates inputs.
+orchestrates repositories, generates short codes, validates inputs, and dispatches
+background URL inspections via the injected ``InspectorService``.
 
 Hard rules (from docs/architecture.md):
 - Zero knowledge of HTTP / FastAPI.
 - No imports of ``fastapi``, ``Request``, ``Response``, or ``HTTPException``.
+- Background-task dispatch is abstracted behind a ``Protocol`` so the service
+  layer never imports FastAPI.
 - Raises pure domain exceptions (``LinkNotFoundError``, etc.).
 """
 
@@ -25,8 +28,9 @@ from loguru import logger
 from fasturl.api.schemas.link_schemas import LinkResponse
 from fasturl.core.config import settings
 from fasturl.core.exceptions import AliasAlreadyTakenError, LinkNotFoundError, ValidationError
-from fasturl.models.link import Link
+from fasturl.models.link import LinkDAO
 from fasturl.repositories.link_repository import LinkRepository
+from fasturl.services.inspector_service import BackgroundTaskScheduler, InspectorService
 
 _log = logger.bind(name="LinkService")
 
@@ -48,11 +52,11 @@ def _build_short_url(code: str) -> str:
     return f"{base}/{code}"
 
 
-def _orm_to_response(link: Link) -> LinkResponse:
-    """Convert a ``Link`` ORM instance into a ``LinkResponse`` DTO.
+def _orm_to_response(link: LinkDAO) -> LinkResponse:
+    """Convert a ``LinkDAO`` ORM instance into a ``LinkResponse`` DTO.
 
     Args:
-        link: The ORM ``Link`` instance.
+        link: The ORM ``LinkDAO`` instance.
 
     Returns:
         A ``LinkResponse`` DTO ready for serialisation.
@@ -88,10 +92,13 @@ class LinkService:
 
     Args:
         repository: Data-access layer injected via ``Depends``.
+        inspector: Inspector service injected via ``Depends`` — handles background
+            URL inspection dispatch.
     """
 
-    def __init__(self, repository: LinkRepository) -> None:
+    def __init__(self, repository: LinkRepository, inspector: InspectorService) -> None:
         self._repository = repository
+        self._inspector = inspector
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -132,16 +139,19 @@ class LinkService:
         target_url: str,
         custom_code: str | None,
         expires_at: datetime | None,
+        scheduler: BackgroundTaskScheduler,
     ) -> LinkResponse:
-        """Create a new shortened link.
+        """Create a new shortened link and schedule its background inspection.
 
         Generates a Base62 code (or validates the custom alias), enforces domain
-        invariants, and persists the new Link aggregate.
+        invariants, persists the new link aggregate, and dispatches a background
+        inspection task via the injected ``InspectorService``.
 
         Args:
             target_url: Validated destination URL (HTTP/HTTPS).
             custom_code: Optional custom alias (pre-validated by Pydantic schema).
             expires_at: Optional expiration datetime (pre-validated to be in the future).
+            scheduler: Background task scheduler (satisfies ``BackgroundTaskScheduler``).
 
         Returns:
             A ``LinkResponse`` DTO for the newly created link.
@@ -168,7 +178,7 @@ class LinkService:
                 raise ValidationError(["code -> Could not generate a unique short code. Please try again."])
 
         now: datetime = datetime.now(UTC).replace(tzinfo=None)
-        link: Link = Link(
+        link: LinkDAO = LinkDAO(
             code=code,
             target_url=target_url,
             is_active=True,
@@ -178,8 +188,14 @@ class LinkService:
             created_at=now,
             updated_at=now,
         )
-        persisted: Link = await self._repository.create(link)
+        persisted: LinkDAO = await self._repository.create(link)
         _log.info(f"Link created: code='{code}', target='{target_url}'")
+        self._inspector.dispatch_inspection(
+            scheduler=scheduler,
+            code=persisted.code,
+            target_url=persisted.target_url,
+            repository=self._repository,
+        )
         return _orm_to_response(link=persisted)
 
     async def get_link(self, code: str) -> LinkResponse:
@@ -194,7 +210,7 @@ class LinkService:
         Raises:
             LinkNotFoundError: If no link exists with the given code.
         """
-        link: Link | None = await self._repository.get_by_code(code)
+        link: LinkDAO | None = await self._repository.get_by_code(code)
         if link is None:
             raise LinkNotFoundError(code)
         return _orm_to_response(link)
@@ -225,7 +241,7 @@ class LinkService:
         if sort_field not in _valid_sort_fields:
             raise ValidationError(details=[f"sort -> Must be one of: {', '.join(_valid_sort_fields)}"])
 
-        links: list[Link] = await self._repository.list_links(
+        links: list[LinkDAO] = await self._repository.list_links(
             status=status,
             is_active=is_active,
             sort_field=sort_field,
@@ -247,11 +263,16 @@ class LinkService:
             raise LinkNotFoundError(code)
         _log.info(f"Link soft-deleted: code='{code}'")
 
-    async def trigger_reinspection(self, code: str) -> LinkResponse:
-        """Reset inspection state to ``pending_analysis`` and return the current snapshot.
+    async def trigger_reinspection(
+        self,
+        code: str,
+        scheduler: BackgroundTaskScheduler,
+    ) -> LinkResponse:
+        """Reset inspection state to ``pending_analysis`` and re-dispatch inspection.
 
         Args:
             code: The Base62 short code or custom alias.
+            scheduler: Background task scheduler (satisfies ``BackgroundTaskScheduler``).
 
         Returns:
             A ``LinkResponse`` DTO reflecting the reset inspection state.
@@ -259,16 +280,22 @@ class LinkService:
         Raises:
             LinkNotFoundError: If no link exists with the given code.
         """
-        link: Link | None = await self._repository.get_by_code(code)
+        link: LinkDAO | None = await self._repository.get_by_code(code)
         if link is None:
             raise LinkNotFoundError(code)
 
         await self._repository.reset_inspection(code)
 
         # Re-fetch to get the up-to-date snapshot after reset
-        updated: Link | None = await self._repository.get_by_code(code)
+        updated: LinkDAO | None = await self._repository.get_by_code(code)
         assert updated is not None  # noqa: S101 — impossible after successful get above
         _log.info(f"Re-inspection triggered for link '{code}'")
+        self._inspector.dispatch_inspection(
+            scheduler=scheduler,
+            code=updated.code,
+            target_url=updated.target_url,
+            repository=self._repository,
+        )
         return _orm_to_response(link=updated)
 
     async def resolve_for_redirect(self, code: str) -> str:
@@ -286,7 +313,7 @@ class LinkService:
         """
         from fasturl.core.exceptions import LinkExpiredError
 
-        link: Link | None = await self._repository.get_by_code(code)
+        link: LinkDAO | None = await self._repository.get_by_code(code)
 
         if link is None or not link.is_active:
             raise LinkNotFoundError(code)
@@ -297,3 +324,11 @@ class LinkService:
                 raise LinkExpiredError(code, expired_at=link.expires_at.isoformat())
 
         return link.target_url
+
+    async def increment_clicks(self, code: str) -> None:
+        """Atomically increment the click counter for a resolved link.
+
+        Args:
+            code: The Base62 short code or custom alias.
+        """
+        await self._repository.increment_clicks(code)
