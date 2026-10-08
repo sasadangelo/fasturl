@@ -69,7 +69,34 @@ All five management endpoints and the public redirect endpoint exercised via Fas
 
 ---
 
-### 3.3 End-to-End Tests
+### 3.3 Performance Benchmarks
+
+**Primary assurance:** the hot-path endpoints meet an acceptable throughput and latency baseline before any database or caching changes are made.
+
+**Tool:** [`hey`](https://github.com/rakyll/hey) — an external HTTP load generator, executed manually against a live Uvicorn server. Performance benchmarks are **not** part of the `pytest` suite and are never run in CI.
+
+**Trigger:** manually, once per milestone that changes the database engine, adds caching, or modifies the redirect hot path. Results are recorded in `docs/benchmarks.md`.
+
+**Pre-conditions:**
+- Server started with `uvicorn --workers 1 --host 127.0.0.1 --port 8000`
+- At least one link pre-created in the DB (so `GET /{code}` resolves correctly)
+- Log level set to `WARNING` to avoid I/O overhead from request logging
+
+**Endpoints benchmarked:**
+
+| Endpoint | Load parameters | Rationale |
+|---|---|---|
+| `GET /{code}` | `-n 10000 -c 50` | Public redirect hot path — read + background write |
+| `GET /api/v1/links/{code}` | `-n 10000 -c 50` | Pure SELECT, no write contention |
+| `POST /api/v1/links` | `-n 1000 -c 10` | Synchronous INSERT + commit |
+
+**Metrics recorded:** req/s, p50, p95, p99 latency, error rate.
+
+**Folder:** `docs/benchmarks.md` (results) — no test files in `tests/`.
+
+---
+
+### 3.4 End-to-End Tests
 
 Not mandated at the current milestone. The integration layer already exercises the full internal stack through the public HTTP surface. End-to-end tests against a deployed container are deferred to the milestone that introduces authentication and containerised deployment.
 
@@ -122,7 +149,7 @@ Which failures block delivery: any failure in `pr-check` blocks merge. Flaky tes
 | Check                                       | Rationale                                                                                                                                                                                |
 |---------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | End-to-end (deployed server / Docker)       | No auth or container requirement at current milestone                                                                                                                                    |
-| Performance / load testing                  | Deferred to auth + rate-limiting milestone; no SLO enforcement tool yet                                                                                                                  |
+| Performance benchmarks activated            | See section 3.3 and `docs/benchmarks.md` for methodology and results.                                                                                                                   |
 | Security penetration testing                | Covered statically by `bandit`; full pentest deferred to auth milestone                                                                                                                  |
 | Click-count atomicity under concurrent load | Not applicable at SQLite / single-process demo scale                                                                                                                                     |
 | `BackgroundTasks` dispatch linkage          | Verified by reading the router source; not separately tested. If the wiring ever becomes complex, an integration test that uses `TestClient` with background tasks enabled can be added. |
@@ -135,3 +162,4 @@ Which failures block delivery: any failure in `pr-check` blocks merge. Flaky tes
 | Version | Date       | Change                                                                                                  |
 |---------|------------|---------------------------------------------------------------------------------------------------------|
 | 0.1     | 2025-05-22 | Initial test strategy — unit + integration categories, in-memory SQLite, no e2e, no coverage threshold |
+| 0.2     | 2025-06-01 | Added section 3.3 Performance Benchmarks; moved performance testing out of deferred checks              |
