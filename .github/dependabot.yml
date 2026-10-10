@@ -1,0 +1,36 @@
+# -----------------------------------------------------------------------------
+# FastURL — Dependabot
+#
+# Security updates only: Dependabot opens a PR when a dependency has a known
+# vulnerability (requires "Dependabot alerts" and "Dependabot security updates"
+# enabled in the repository settings). open-pull-requests-limit: 0 disables
+# routine version-bump PRs; it does not apply to security updates.
+#
+# Every Dependabot PR runs the CI workflow (lint, test-sqlite, test-postgresql),
+# which must pass before merging.
+# -----------------------------------------------------------------------------
+version: 2
+updates:
+  # Python dependencies (pyproject.toml + uv.lock)
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "deps"
+
+  # Actions used in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 0
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "ci"
