@@ -76,7 +76,9 @@ _No inter-entity relationships — the domain has a single Aggregate Root. All V
 2. **`code` as sole public identifier**: `id` (integer) is used only for internal ORM operations and never exposed via the API. `public_id` (UUID) was removed as redundant — the Base62 `code` is already non-sequential and non-enumerable, making it a safe and clean public key without the overhead of a second unique column.
 3. **TEXT for datetime in SQLite**: SQLite has no native datetime type; ISO 8601 strings (`TEXT`) are used with `CURRENT_TIMESTAMP` defaults. SQLAlchemy's `DateTime` type maps to this transparently.
 4. **Boolean as INTEGER**: SQLite has no native boolean; `CHECK(is_active IN (0,1))` enforces the constraint at the DB level. SQLAlchemy's `Boolean` type maps to this automatically.
-5. **`inspection_status` with CHECK constraint**: Bounded enumeration enforced at DB level to guard against invalid states escaping the application layer.
+5. **`inspection_status` as a bounded enumeration**: enforced at DB level to guard against invalid states escaping the application layer — `VARCHAR` + `CHECK` on SQLite, native `ENUM inspection_status` on PostgreSQL (SQLAlchemy `Enum(..., create_constraint=True)` produces the right form for each dialect).
+6. **PostgreSQL mapping**: the column table above describes SQLite storage. On PostgreSQL the same model maps to native types — `SERIAL` id, `BOOLEAN` `is_active`, `ENUM` `inspection_status`, `DOUBLE PRECISION` `latency_ms`, `TIMESTAMP WITHOUT TIME ZONE` for all datetimes. Reference DDL: `sql/sqlite/schema.sql` and `sql/postgres/02-schema.sql`.
+7. **All timestamps are naive UTC**: values are produced in Python (`datetime.now(UTC)`) rather than with the database's `now()`, which returns the server timezone on PostgreSQL but UTC on SQLite. API input with a UTC offset (e.g. `expires_at`) is converted to UTC before storage.
 
 ## Normalisation Notes
 _Compliant with 3NF for the entity model. Intentional exception:_
@@ -90,3 +92,4 @@ _To be defined once query patterns are known._
 |---------|------------|-------------------------------------------------------------------------------|
 | 0.1     | 2025-05-15 | Initial design — single `links` table with embedded VOs                       |
 | 0.2     | 2025-05-22 | Removed `public_id` column — `code` is the sole public identifier             |
+| 0.3     | 2026-10-10 | PostgreSQL support: native `ENUM` for `inspection_status`, PostgreSQL type mapping, naive-UTC timestamps |

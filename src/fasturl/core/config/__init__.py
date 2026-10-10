@@ -38,6 +38,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         env_nested_delimiter="__",
         extra="ignore",
+        # Validation errors must not echo input values: they may contain secrets from .env.
+        hide_input_in_errors=True,
     )
 
     app: AppConfig = Field(default_factory=AppConfig, description="HTTP server and application settings.")

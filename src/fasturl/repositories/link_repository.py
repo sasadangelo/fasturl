@@ -182,15 +182,16 @@ class LinkRepository:
         Args:
             code: The Base62 short code or custom alias.
         """
-        from sqlalchemy import func  # local import to avoid top-level circular deps
-
+        # Naive UTC from Python, like every other timestamp: the database's now() is in the
+        # server timezone on PostgreSQL (e.g. Europe/Rome) but UTC on SQLite.
+        now = datetime.now(UTC).replace(tzinfo=None)
         await self._session.execute(
             update(LinkDAO)
             .where(LinkDAO.code == code)
             .values(
                 clicks_count=LinkDAO.clicks_count + 1,
-                last_clicked_at=func.now(),
-                updated_at=func.now(),
+                last_clicked_at=now,
+                updated_at=now,
             )
         )
         await self._session.commit()

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -36,6 +36,9 @@ class SQLiteDatabaseConfig(BaseModel):
 
 class PostgreSQLDatabaseConfig(BaseModel):
     """Settings for the PostgreSQL backend, including the per-worker connection pool."""
+
+    # Never echo input values (they include the password) in validation errors.
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     host: str = Field(default="127.0.0.1", description="PostgreSQL server host.")
     port: int = Field(default=5432, ge=1, le=65535, description="PostgreSQL server port.")
@@ -63,7 +66,7 @@ class PostgreSQLDatabaseConfig(BaseModel):
 class DatabaseConfig(BaseSettings):
     """Settings for the SQLAlchemy database connection."""
 
-    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(extra="ignore")
+    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(extra="ignore", hide_input_in_errors=True)
 
     echo: bool = Field(default=False, description="Log all SQL statements emitted by SQLAlchemy.")
     sqlite: SQLiteDatabaseConfig | None = Field(default=None, description="SQLite backend settings.")

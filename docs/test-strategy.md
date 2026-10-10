@@ -106,12 +106,12 @@ Not mandated at the current milestone. The integration layer already exercises t
 
 | Concern                   | Policy                                                                                                                                                                              |
 |---------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Database isolation**    | Each integration test (or test module) receives a fresh in-memory SQLite session via an async fixture that runs `create_all` before the test and `drop_all` after. No test depends on state left by another. |
+| **Database isolation**    | Each integration test (or test module) receives a fresh session via an async fixture that runs `create_all` before the test and `drop_all` after. No test depends on state left by another. The database is in-memory SQLite by default; `TEST_DATABASE_URL` points the same suite to a dedicated PostgreSQL test database. |
 | **Execution order**       | All tests must be independently runnable. `pytest -p no:randomly` is not required; tests must not break when shuffled.                                                              |
 | **Time / expiry**         | `datetime.utcnow()` calls that affect business rules (expiry checks) are controlled by injecting explicit past or future timestamps in test fixtures. `freezegun` may be used for service-layer unit tests. |
-| **Randomness**            | `random.choices` in `_generate_code` is not seeded; the actual random output is acceptable. Collision-retry logic is tested by pre-populating codes, not by controlling the PRNG.  |
+| **Randomness**            | `secrets.choice` in `_generate_code` (CSPRNG) is not controlled; the actual random output is acceptable. Collision-retry logic is tested by pre-populating codes, not by controlling the PRNG.  |
 | **External HTTP**         | All outbound `httpx.AsyncClient` calls made by `InspectorService` are intercepted via `respx` or `httpx.MockTransport`. No real network calls occur in any test.                   |
-| **Secrets / environment** | No `.env` file is loaded in CI. Tests use a dedicated `config.yaml` fixture or environment variable overrides pointing to the in-memory SQLite URL.                                 |
+| **Secrets / environment** | No `.env` file is loaded in CI. The PostgreSQL CI job uses a throwaway service container whose credentials live only in the workflow file. |
 | **Retries**               | No test retry is permitted. A flaky test must be fixed, not silently re-run.                                                                                                        |
 | **Parallel execution**    | Integration tests may be run in parallel only if each test has its own isolated session. Until fixture isolation is verified, `pytest -n auto` is opted out for integration tests.  |
 
@@ -125,20 +125,22 @@ Not mandated at the current milestone. The integration layer already exercises t
 | `uv run pytest tests/integration`                         | Integration tests only                  | Development, pre-commit |
 | `uv run pytest`                                           | All tests                               | Before push, CI         |
 | `uv run pytest --tb=short -q`                             | All tests (compact output)              | CI pull-request check   |
-| `uv run coverage run -m pytest && uv run coverage report` | Coverage report (no enforced threshold) | CI main-branch push     |
+| `uv run poe test-cov`                                     | All tests + branch coverage, fails below `fail_under` (85%) | Before push, CI |
+| `TEST_DATABASE_URL=postgresql+asyncpg://… uv run pytest` | All tests against PostgreSQL            | Before push (optional), CI |
 
 **Required environment for CI:**
-- Python 3.12 (from `.python-version`)
+- Python 3.14 (from `.python-version`)
 - `uv` package manager
-- No additional services (SQLite is in-memory; no Docker required)
+- PostgreSQL 17 service container for the `test-postgresql` job only
 - No secrets required for the current milestone
 
-**CI gates (to be configured when a workflow file is added):**
+**CI gates** (`.github/workflows/ci.yml`, on every pull request and every push to `main`):
 
-| Gate         | Trigger            | Checks                                                                 | Target time |
-|--------------|--------------------|------------------------------------------------------------------------|-------------|
-| `pr-check`   | Every pull request | `ruff` lint, `mypy` typecheck, `bandit` security scan, full test suite | < 3 min     |
-| `full-check` | Push to `main`     | All of the above + coverage report                                     | < 5 min     |
+| Job               | Checks                                                                                              | Target time |
+|-------------------|-----------------------------------------------------------------------------------------------------|-------------|
+| `lint`            | All pre-commit hooks on all files: `ruff` lint + format, `mypy`, `bandit`, `detect-secrets`, hygiene | < 3 min     |
+| `test-sqlite`     | Full test suite on in-memory SQLite with branch coverage; fails below 85% (`[tool.coverage]` in `pyproject.toml`) | < 3 min |
+| `test-postgresql` | Full test suite on PostgreSQL 17 (`TEST_DATABASE_URL`)                                               | < 3 min     |
 
 Which failures block delivery: any failure in `pr-check` blocks merge. Flaky tests must be resolved before re-enabling the gate; suppression via `xfail` or retry markers is not permitted without a tracked issue.
 
@@ -163,3 +165,4 @@ Which failures block delivery: any failure in `pr-check` blocks merge. Flaky tes
 |---------|------------|---------------------------------------------------------------------------------------------------------|
 | 0.1     | 2025-05-22 | Initial test strategy — unit + integration categories, in-memory SQLite, no e2e, no coverage threshold |
 | 0.2     | 2025-06-01 | Added section 3.3 Performance Benchmarks; moved performance testing out of deferred checks              |
+| 0.3     | 2026-10-10 | GitHub Actions CI (lint, SQLite with branch coverage ≥ 85%, PostgreSQL); `TEST_DATABASE_URL`; CSPRNG code generation |

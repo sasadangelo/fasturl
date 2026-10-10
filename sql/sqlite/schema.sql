@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS links (
     target_url TEXT NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT 1,
     expires_at TIMESTAMP NULL DEFAULT NULL,
-    inspection_status VARCHAR(20) NOT NULL DEFAULT 'pending_analysis',
+    inspection_status VARCHAR(16) NOT NULL DEFAULT 'pending_analysis'
+        CHECK (inspection_status IN ('pending_analysis', 'active', 'unreachable')),
     http_status_code INTEGER NULL DEFAULT NULL,
     latency_ms REAL NULL DEFAULT NULL,
     title TEXT NULL DEFAULT NULL,

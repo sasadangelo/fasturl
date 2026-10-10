@@ -131,6 +131,19 @@ class TestCreateLink:
         assert response.status_code == 201
         assert response.json()["expires_at"] is not None
 
+    async def test_expiry_with_offset_is_stored_as_utc(self, api_client: httpx.AsyncClient) -> None:
+        """An expires_at with a UTC offset is converted to UTC, not truncated."""
+        expires_utc = (datetime.now(UTC) + timedelta(days=30)).replace(microsecond=0)
+        expires_rome = expires_utc.astimezone(timezone(timedelta(hours=2)))
+
+        response: Response = await api_client.post(
+            url="/api/v1/links",
+            json={"target_url": "https://example.com", "expires_at": expires_rome.isoformat()},
+        )
+
+        assert response.status_code == 201
+        assert datetime.fromisoformat(response.json()["expires_at"]) == expires_utc.replace(tzinfo=None)
+
     async def test_response_contains_error_envelope_on_failure(self, api_client: httpx.AsyncClient) -> None:
         """Error responses follow the standardised envelope schema."""
         response: Response = await api_client.post(

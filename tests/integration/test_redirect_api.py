@@ -96,6 +96,23 @@ class TestRedirectEndpoint:
         assert updated is not None
         assert updated.clicks_count == 1
 
+    async def test_last_clicked_at_is_utc(
+        self,
+        api_client: httpx.AsyncClient,
+        db_session: AsyncSession,
+    ) -> None:
+        """last_clicked_at is stored in UTC, whatever the database server timezone."""
+        await _seed_link(db_session, code="redir03", target_url="https://example.com")
+
+        await api_client.get(url="/redir03", follow_redirects=False)
+
+        await db_session.commit()
+        updated: LinkDAO | None = await LinkRepository(db_session).get_by_code(code="redir03")
+        assert updated is not None
+        assert updated.last_clicked_at is not None
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
+        assert abs(now_utc - updated.last_clicked_at) < timedelta(minutes=1)
+
     async def test_inactive_link_returns_404(
         self,
         api_client: httpx.AsyncClient,

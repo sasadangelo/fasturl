@@ -17,12 +17,19 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     """Shared declarative base for all ORM models."""
+
+
+INSPECTION_STATUSES: tuple[str, ...] = ("pending_analysis", "active", "unreachable")
+"""Allowed values of ``links.inspection_status``.
+
+Mapped to a native ``ENUM`` type on PostgreSQL and to ``VARCHAR`` + ``CHECK`` constraint on SQLite.
+"""
 
 
 class LinkDAO(Base):
@@ -56,7 +63,11 @@ class LinkDAO(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 
     # LinkInspection VO — embedded columns
-    inspection_status: Mapped[str] = mapped_column(String(length=20), nullable=False, default="pending_analysis")
+    inspection_status: Mapped[str] = mapped_column(
+        Enum(*INSPECTION_STATUSES, name="inspection_status", create_constraint=True),
+        nullable=False,
+        default="pending_analysis",
+    )
     http_status_code: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     latency_ms: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
     title: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)

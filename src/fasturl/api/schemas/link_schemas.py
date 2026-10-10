@@ -75,15 +75,24 @@ class LinkCreateRequest(BaseModel):
             raise ValueError("custom_code must contain only alphanumeric characters [a-zA-Z0-9]")
         return v
 
+    @field_validator("expires_at")
+    @classmethod
+    def normalize_expires_at_to_utc(cls, v: datetime | None) -> datetime | None:
+        """Convert timezone-aware datetimes to naive UTC, the convention used by all DB timestamps.
+
+        Naive input is assumed to be UTC already. Without this, an offset such as ``+02:00``
+        would be dropped instead of converted, and PostgreSQL rejects aware datetimes for
+        ``TIMESTAMP WITHOUT TIME ZONE`` columns.
+        """
+        if v is not None and v.tzinfo is not None:
+            return v.astimezone(UTC).replace(tzinfo=None)
+        return v
+
     @model_validator(mode="after")
     def validate_expires_at_future(self) -> LinkCreateRequest:
         """Reject expiration dates that are not in the future."""
-        if self.expires_at is not None:
-            now = datetime.now(UTC).replace(tzinfo=None)
-            # Strip tzinfo for naive comparison — both should be UTC
-            expires = self.expires_at.replace(tzinfo=None)
-            if expires <= now:
-                raise ValueError("expires_at -> Expiration date must be in the future")
+        if self.expires_at is not None and self.expires_at <= datetime.now(UTC).replace(tzinfo=None):
+            raise ValueError("expires_at -> Expiration date must be in the future")
         return self
 
 

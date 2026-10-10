@@ -15,7 +15,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # Copy application source
-COPY --chown=appuser:appuser config.yaml ./
+COPY --chown=appuser:appuser config.yaml app.sh ./
 COPY --chown=appuser:appuser src/ ./src/
 
 # Switch to non-root user
@@ -23,4 +23,5 @@ USER 1001
 
 EXPOSE 8000
 
-CMD ["uv", "run", "uvicorn", "fasturl.main:app", "--host", "127.0.0.1", "--port", "8000"]
+# app.sh reads host, port and workers from config.yaml (overridable via env, e.g. APP__HOST=0.0.0.0)
+CMD ["./app.sh"]

@@ -1,3 +1,12 @@
+# -----------------------------------------------------------------------------
+# FastURL — Docker Compose
+#
+# The database backend is selected in config.yaml (keep either the "sqlite" or
+# the "postgresql" section active):
+#
+#   SQLite:      docker compose up
+#   PostgreSQL:  docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+# -----------------------------------------------------------------------------
 services:
   api:
     build: .
@@ -8,6 +17,6 @@ services:
       - ./instance:/app/instance
       - ./logs:/app/logs
     environment:
+      - APP__HOST=0.0.0.0
       - APP__DEBUG=false
-      - DATABASE__URL=sqlite+aiosqlite:///instance/fasturl.db
     restart: unless-stopped

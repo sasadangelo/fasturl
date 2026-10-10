@@ -1,0 +1,72 @@
+# -----------------------------------------------------------------------------
+# FastURL — Continuous Integration
+#
+#   lint             pre-commit hooks on all files (ruff, mypy, bandit, detect-secrets, ...)
+#   test-sqlite      full test suite on in-memory SQLite, branch coverage >= threshold
+#   test-postgresql  full test suite on a PostgreSQL 17 service container
+# -----------------------------------------------------------------------------
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run pre-commit hooks
+        run: uv run pre-commit run --all-files --show-diff-on-failure
+
+  test-sqlite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run tests with branch coverage
+        # Threshold and branch coverage are configured in [tool.coverage] (pyproject.toml).
+        run: uv run poe test-cov
+
+  test-postgresql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: fasturl_user
+          POSTGRES_PASSWORD: fasturl_ci  # pragma: allowlist secret
+          POSTGRES_DB: fasturl_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fasturl_user -d fasturl_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      # Throwaway CI-only database: not a real secret.
+      TEST_DATABASE_URL: postgresql+asyncpg://fasturl_user:fasturl_ci@127.0.0.1:5432/fasturl_test  # pragma: allowlist secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Run tests on PostgreSQL
+        run: uv run pytest

@@ -5,12 +5,21 @@
 """Shared pytest fixtures for unit and integration tests.
 
 Unit fixtures: async-capable stubs for LinkRepository and httpx.AsyncClient.
-Integration fixtures: in-memory SQLite engine, real AsyncSession, FastAPI
+Integration fixtures: real database engine and AsyncSession, FastAPI
 ASGI client with the DB dependency overridden.
+
+Integration tests use an in-memory SQLite database by default. Set
+``TEST_DATABASE_URL`` to run them against another database, e.g. PostgreSQL::
+
+    TEST_DATABASE_URL=postgresql+asyncpg://fasturl_user:<password>@127.0.0.1:5432/fasturl_test uv run pytest
+
+The target database must exist and be dedicated to tests: tables are created
+before each test and dropped after it.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 
@@ -25,18 +34,20 @@ from fasturl.main import app
 from fasturl.models.link import Base
 
 # ---------------------------------------------------------------------------
-# Integration — in-memory SQLite engine and session
+# Integration — database engine and session
 # ---------------------------------------------------------------------------
+
+TEST_DATABASE_URL: str = os.environ.get("TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 
 @pytest.fixture()
 async def db_session() -> AsyncIterator[AsyncSession]:
-    """Yield an AsyncSession backed by a fresh in-memory SQLite database.
+    """Yield an AsyncSession backed by a fresh test database (``TEST_DATABASE_URL``).
 
     Creates all tables before the test and drops them after, ensuring full
     isolation between tests.
     """
-    engine: AsyncEngine = create_async_engine(url="sqlite+aiosqlite:///:memory:", echo=False)
+    engine: AsyncEngine = create_async_engine(url=TEST_DATABASE_URL, echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(fn=Base.metadata.create_all)
 

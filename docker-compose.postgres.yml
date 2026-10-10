@@ -1,0 +1,36 @@
+# -----------------------------------------------------------------------------
+# FastURL — PostgreSQL override
+#
+# Adds a PostgreSQL 17 service and points the API to it. Requires:
+#   - the "postgresql" section active (and "sqlite" commented out) in config.yaml
+#   - DATABASE__POSTGRESQL__PASSWORD set in .env (also used as the PostgreSQL password)
+#
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+# -----------------------------------------------------------------------------
+services:
+  postgres:
+    image: docker.io/library/postgres:17
+    environment:
+      - POSTGRES_USER=fasturl_user
+      - POSTGRES_PASSWORD=${DATABASE__POSTGRESQL__PASSWORD:?set DATABASE__POSTGRESQL__PASSWORD in .env}
+      - POSTGRES_DB=fasturl_db
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fasturl_user -d fasturl_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  api:
+    environment:
+      # Inside the Compose network PostgreSQL is reachable by its service name.
+      - DATABASE__POSTGRESQL__HOST=postgres
+      - DATABASE__POSTGRESQL__PASSWORD=${DATABASE__POSTGRESQL__PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

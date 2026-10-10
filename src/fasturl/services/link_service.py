@@ -18,7 +18,7 @@ Hard rules (from docs/architecture.md):
 
 from __future__ import annotations
 
-import random
+import secrets
 import string
 from datetime import UTC, datetime
 from typing import LiteralString
@@ -107,11 +107,13 @@ class LinkService:
     def _generate_code(self) -> str:
         """Generate a random Base62 code of the configured length.
 
+        Uses ``secrets`` (CSPRNG) so that codes cannot be predicted from previous ones.
+
         Returns:
             A random alphanumeric string of ``settings.app.code_length`` characters.
         """
         length = settings.app.code_length
-        return "".join(random.choices(_BASE62_ALPHABET, k=length))
+        return "".join(secrets.choice(_BASE62_ALPHABET) for _ in range(length))
 
     def _validate_target_url(self, target_url: str) -> None:
         """Enforce self-redirect prevention and scheme validation.

@@ -2,11 +2,9 @@ app:
   host: "127.0.0.1"
   port: 8000
   # Number of Uvicorn worker processes.
-  # NOTE: When using SQLite, workers MUST be set to 1 to avoid database lock contention.
-  # When using PostgreSQL, workers can be set > 1 (e.g. 4) for multi-process concurrency.
-  # Each worker has its own connection pool: keep workers * (pool_size + max_overflow)
-  # well below PostgreSQL max_connections (default 100, 97 usable by non-superusers).
-  workers: 4
+  # SQLite: MUST be 1 (database-wide write lock).
+  # PostgreSQL: can be > 1, e.g. 4 (see the pool sizing notes in the postgresql section).
+  workers: 1
   base_url: "http://localhost:8000"
   debug: false
   code_length: 7
@@ -34,10 +32,13 @@ database:
   #   port: 5432
   #   name: "fasturl_db"
   #   user: "fasturl_user"
-  #   # Connection pool, per worker process. Total connections = workers * (pool_size + max_overflow).
-  #   # Aim for ~2x the CPU cores in total (e.g. 4 workers * 10 = 40). More connections than that
-  #   # only add contention inside PostgreSQL. max_overflow: 0 keeps a fixed pool, so no connection
-  #   # is opened or closed under load (steadier latency in benchmarks).
+  #   # Connection pool, per worker process (values below are for workers: 4).
+  #   # - pool_size >= concurrent requests / workers, otherwise requests queue for a connection
+  #   #   (e.g. 50 concurrent requests / 4 workers ~ 13 -> 15).
+  #   # - workers * (pool_size + max_overflow) < PostgreSQL max_connections (default 100,
+  #   #   97 usable by non-superusers), otherwise connections are rejected (HTTP 500).
+  #   # - max_overflow: 0 keeps a fixed pool: no connection opened or closed under load.
+  #   # See docs/benchmarks.md section 3.2.
   #   pool_size: 15
   #   max_overflow: 0
   #   pool_timeout: 30

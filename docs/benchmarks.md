@@ -229,7 +229,7 @@ _DB size at start: 5 rows_
 
 ---
 
-### 6.2 Run 2 — PostgreSQL migration (1 and 4 Uvicorn workers)
+### 6.2 Run 2 — PostgreSQL migration (1 and 4 Uvicorn workers) — issues #2, #3
 
 _Date: 2026-10-10_
 _Commit: c8de56b + uncommitted PostgreSQL support changes_
@@ -279,16 +279,80 @@ _DB size: small; not reset between configurations — each `POST` run adds ~1,10
 
 ---
 
-### 6.3 Run 3 — PostgreSQL + Redis cache _(planned — issue #3)_
+### 6.3 Run 3 — PostgreSQL + Redis cache _(planned)_
 
 _Results to be recorded after the Redis cache milestone._
 
 ---
 
-## 7. Change Log
+## 7. Migrating from SQLite to PostgreSQL
+
+FastURL supports both backends; the active one is chosen in `config.yaml`. Data is **not** migrated:
+PostgreSQL starts with an empty `links` table (the application creates it at startup).
+
+### 7.1 Local (Homebrew)
+
+1. Install and start PostgreSQL 17 (not registered as a service):
+   ```bash
+   brew install postgresql@17
+   /opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /opt/homebrew/var/postgresql@17 -l /opt/homebrew/var/postgresql@17/server.log start
+   ```
+2. Choose a password and put it in `.env` (template: `.env.example`):
+   ```bash
+   DATABASE__POSTGRESQL__PASSWORD=...
+   ```
+3. Create the application user and database with the same password:
+   ```bash
+   /opt/homebrew/opt/postgresql@17/bin/psql -d postgres -v password='...' -f sql/postgres/01-init-user.sql
+   ```
+4. In `config.yaml`, comment out the `sqlite:` section and uncomment `postgresql:`.
+   Set `app.workers` and `postgresql.pool_size` following section 3.2 (e.g. 4 workers, `pool_size: 15`).
+5. Start with `./app.sh` and check the configuration summary (database, pool, total connections).
+
+### 7.2 Docker Compose
+
+```bash
+docker compose up                                                       # SQLite
+docker compose -f docker-compose.yml -f docker-compose.postgres.yml up  # PostgreSQL 17
+```
+
+The PostgreSQL override starts a `postgres` service (user `fasturl_user`, database `fasturl_db`, password from
+`DATABASE__POSTGRESQL__PASSWORD` in `.env`) and points the API to it. The `postgresql:` section must be active in
+`config.yaml`; if `sqlite:` is still active, startup fails with "configure only one database backend".
+
+### 7.3 Running the test suite against PostgreSQL
+
+Integration tests use in-memory SQLite by default. To run them against PostgreSQL, create a dedicated test database
+(tables are created and dropped around every test) and set `TEST_DATABASE_URL`:
+
+```bash
+/opt/homebrew/opt/postgresql@17/bin/psql -d postgres -c "CREATE DATABASE fasturl_test OWNER fasturl_user"
+TEST_DATABASE_URL="postgresql+asyncpg://fasturl_user:<password>@127.0.0.1:5432/fasturl_test" uv run pytest
+```
+
+### 7.4 Schema differences
+
+| Column              | SQLite                         | PostgreSQL                         |
+|---------------------|--------------------------------|------------------------------------|
+| `id`                | `INTEGER PRIMARY KEY AUTOINCREMENT` | `SERIAL PRIMARY KEY`          |
+| `is_active`         | `BOOLEAN` (stored as 0/1)      | native `BOOLEAN`                   |
+| `inspection_status` | `VARCHAR` + `CHECK` constraint | native `ENUM inspection_status`    |
+| `latency_ms`        | `REAL`                         | `DOUBLE PRECISION`                 |
+
+Reference DDL: `sql/sqlite/schema.sql`, `sql/postgres/02-schema.sql`. All timestamps are stored as naive UTC
+(`TIMESTAMP WITHOUT TIME ZONE`), independent of the PostgreSQL server timezone.
+
+> **Existing PostgreSQL databases.** `create_all` creates missing tables but never alters existing ones. A `links`
+> table created before `inspection_status` became an `ENUM` keeps its `VARCHAR` column; drop it
+> (`DROP TABLE links;`) and restart the application to recreate it.
+
+---
+
+## 8. Change Log
 
 | Version | Date       | Change                                                             |
 |---------|------------|--------------------------------------------------------------------|
 | 0.1     | 2025-06-01 | Initial document — methodology, pre-conditions, commands, Run 1 skeleton |
 | 0.2     | 2026-10-08 | Added `-disable-redirects` note; executed and recorded Run 1 SQLite baseline results |
 | 0.3     | 2026-10-10 | Recorded Run 2 (PostgreSQL, 1 and 4 workers) with database vs worker breakdown; added pool sizing rules; warm-up at official-run concurrency; PostgreSQL pre-conditions; `./app.sh` start; corrected machine to M5 Max and Python to 3.14 |
+| 0.4     | 2026-10-10 | Added section 7, migrating from SQLite to PostgreSQL (local, Docker Compose, tests, schema differences) |
