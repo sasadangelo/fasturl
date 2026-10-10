@@ -1,5 +1,5 @@
 # Performance Benchmarks — FastURL
-_Last updated: 2025-06-01_
+_Last updated: 2026-10-10_
 
 ## 1. Objective
 
@@ -16,17 +16,21 @@ See `docs/test-strategy.md` section 3.3 for the full classification rationale.
 
 | Attribute         | Value                          |
 |-------------------|--------------------------------|
-| Machine           | Apple MacBook Pro M4 Pro        |
+| Machine           | Apple MacBook Pro M5 Max (6 performance + 12 efficiency cores) |
 | RAM               | 36 GB                          |
 | Storage           | 2 TB NVMe SSD                  |
-| OS                | macOS (Darwin arm64)           |
-| Python            | 3.12 (from `.python-version`)  |
+| OS                | macOS 27.0.1 (Darwin arm64)    |
+| Python            | 3.14 (from `.python-version`)  |
 | ASGI server       | Uvicorn (`uvicorn[standard]`)  |
-| Workers           | 1 (single process)             |
-| Database          | SQLite via `aiosqlite`         |
-| Load generator    | `hey`                          |
+| Workers           | Run 1: 1 — Run 2: 1 and 4      |
+| Database          | Run 1: SQLite via `aiosqlite` — Run 2: PostgreSQL 17.11 (Homebrew, local, default settings) via `asyncpg` |
+| Load generator    | `hey`, on the same machine as server and database |
 
-> **Why 1 worker?** A single Uvicorn process isolates the SQLite variable and eliminates IPC overhead between workers. This is the cleanest starting point before any infrastructure change.
+> **Why 1 worker for Run 1?** A single Uvicorn process isolates the SQLite variable and eliminates IPC overhead between workers. This is the cleanest starting point before any infrastructure change. SQLite cannot use more workers anyway (database-wide write lock).
+>
+> **Why 1 and 4 workers for Run 2?** Switching to PostgreSQL changes two things at once: the database engine and the possibility of running several workers. Running PostgreSQL with 1 worker isolates the database effect; 4 workers then measure the worker effect.
+>
+> **Shared machine.** `hey`, the Uvicorn workers and PostgreSQL all compete for the same CPU cores, so absolute numbers are lower than on separate hosts. Comparisons between runs remain valid because the setup is identical.
 
 ---
 
@@ -54,16 +58,35 @@ hey --version
 | Write (create)  | `-n 1000 -c 10`  | Conservative: each POST performs a synchronous INSERT + commit + Base62 generation |
 
 `-c 50` is chosen deliberately — higher concurrency on a 1-worker SQLite setup produces `SQLITE_BUSY` errors that pollute the baseline with artificial failures rather than measuring real throughput.
+The same flags are kept in every run so results stay comparable.
+
+**PostgreSQL connection pool sizing.** Each Uvicorn worker is a separate process with its own connection pool.
+`hey -c N` keeps N requests in flight, spread across the workers, and each in-flight request holds one connection.
+Two rules keep the pool from becoming the bottleneck (or failing):
+
+| Rule | Why |
+|------|-----|
+| `pool_size ≥ c ÷ workers` | Otherwise excess requests queue for a free connection and the wait shows up as latency — the pool is measured, not the database |
+| `workers × (pool_size + max_overflow) < max_connections` (97 usable by non-superusers with the default 100) | Otherwise PostgreSQL rejects connections and requests fail with HTTP 500 (`TooManyConnectionsError`) |
+
+`max_overflow: 0` keeps the pool fixed, so no connection is opened or closed during a run.
+
+| Workers | `-c` | `pool_size` | `max_overflow` | Total connections |
+|---------|------|-------------|----------------|-------------------|
+| 1       | 50   | 50          | 0              | 50                |
+| 4       | 50   | 15          | 0              | 60                |
 
 ### 3.3 Warm-up
 
-Before each official run, execute one warm-up pass with reduced load and discard the results:
+Before each official run, execute one warm-up pass and discard the results.
+The warm-up uses the **same concurrency as the official run** (`-n 2000 -c 50` for reads/redirects, `-n 100 -c 5` for writes):
 
 ```bash
-hey -n 500 -c 10 http://127.0.0.1:8000/<code>
+hey -n 2000 -c 50 -disable-redirects http://127.0.0.1:8000/<code>
 ```
 
 This flushes SQLAlchemy's connection pool initialisation and any OS-level TCP setup overhead from the measurement window.
+Connections are opened lazily, so a warm-up at lower concurrency (Run 1 used `-n 500 -c 10`) leaves part of the pool to be opened during the official run — negligible with SQLite, but measurable with a PostgreSQL pool of 15–50 connections per worker.
 
 ### 3.4 Metrics Recorded
 
@@ -89,11 +112,27 @@ All steps below must be completed before running any benchmark.
 brew install hey
 ```
 
-### 4.2 Start the server
+### 4.2 Prepare PostgreSQL (Run 2 onwards)
 
 ```bash
-uv run uvicorn fasturl.main:app --workers 1 --host 127.0.0.1 --port 8000
+# Start PostgreSQL (Homebrew, not registered as a service)
+/opt/homebrew/opt/postgresql@17/bin/pg_ctl -D /opt/homebrew/var/postgresql@17 -l /opt/homebrew/var/postgresql@17/server.log start
+
+# Create user and database (once); use the same password as DATABASE__POSTGRESQL__PASSWORD in .env
+/opt/homebrew/opt/postgresql@17/bin/psql -d postgres -v password='...' -f sql/postgres/01-init-user.sql
 ```
+
+The `links` table is created by the application at startup. In `config.yaml`, keep the `postgresql:` section active
+(and `sqlite:` commented out) and set `app.workers` and `postgresql.pool_size` as in section 3.2.
+
+### 4.3 Start the server
+
+```bash
+./app.sh
+```
+
+`app.sh` reads host, port and workers from `config.yaml` and prints the effective configuration
+(database, pool, total connections, log level) before Uvicorn starts — check it before every run.
 
 > Set log level to `WARNING` in `config.yaml` before starting to avoid Loguru I/O overhead on every request distorting the results:
 > ```yaml
@@ -101,7 +140,7 @@ uv run uvicorn fasturl.main:app --workers 1 --host 127.0.0.1 --port 8000
 >   level: WARNING
 > ```
 
-### 4.3 Pre-seed the database
+### 4.4 Pre-seed the database
 
 A test link must exist before running `GET /{code}` or `GET /api/v1/links/{code}`.
 Create one via the API and note the returned `code`:
@@ -118,7 +157,7 @@ The response will contain a `code` field (e.g. `aB3x9zK`). Use that value in the
 
 ## 5. Benchmark Commands
 
-Replace `<code>` with the value obtained in section 4.3.
+Replace `<code>` with the value obtained in section 4.4.
 
 ### 5.1 `GET /{code}` — Public redirect (hot path)
 
@@ -126,7 +165,7 @@ Replace `<code>` with the value obtained in section 4.3.
 
 ```bash
 # Warm-up (discard results)
-hey -n 500 -c 10 -disable-redirects http://127.0.0.1:8000/<code>
+hey -n 2000 -c 50 -disable-redirects http://127.0.0.1:8000/<code>
 
 # Official run
 hey -n 10000 -c 50 -disable-redirects http://127.0.0.1:8000/<code>
@@ -136,7 +175,7 @@ hey -n 10000 -c 50 -disable-redirects http://127.0.0.1:8000/<code>
 
 ```bash
 # Warm-up (discard results)
-hey -n 500 -c 10 http://127.0.0.1:8000/api/v1/links/<code>
+hey -n 2000 -c 50 http://127.0.0.1:8000/api/v1/links/<code>
 
 # Official run
 hey -n 10000 -c 50 http://127.0.0.1:8000/api/v1/links/<code>
@@ -174,7 +213,7 @@ _DB size at start: 5 rows_
 | `GET /api/v1/links/{code}`  | 1,421.72 | 34.3 ms | 52.7 ms | 64.3 ms | 0.0%   |
 | `POST /api/v1/links`        | 286.56   | 14.1 ms | 94.1 ms | 456.3 ms| 0.0%   |
 
-**Expected ranges (M4 Pro, 1 worker):**
+**Expected ranges (M5 Max, 1 worker):**
 
 | Endpoint                    | req/s expected  | Key bottleneck |
 |-----------------------------|-----------------|----------------|
@@ -190,9 +229,53 @@ _DB size at start: 5 rows_
 
 ---
 
-### 6.2 Run 2 — PostgreSQL migration _(planned — issue #2)_
+### 6.2 Run 2 — PostgreSQL migration (1 and 4 Uvicorn workers)
 
-_Results to be recorded after the PostgreSQL migration milestone._
+_Date: 2026-10-10_
+_Commit: c8de56b + uncommitted PostgreSQL support changes_
+_Database: PostgreSQL 17.11, local, default settings (`max_connections = 100`)_
+_DB size: small; not reset between configurations — each `POST` run adds ~1,100 rows. Lookups use the unique index on `code`, so table size does not affect read/redirect results at this scale._
+
+| Configuration         | `app.workers` | `pool_size` | `max_overflow` | Total connections |
+|-----------------------|---------------|-------------|----------------|-------------------|
+| PostgreSQL, 1 worker  | 1             | 50          | 0              | 50                |
+| PostgreSQL, 4 workers | 4             | 15          | 0              | 60                |
+
+**Results**
+
+| Endpoint                    | Configuration         | req/s    | p50     | p95      | p99      | Errors |
+|-----------------------------|-----------------------|----------|---------|----------|----------|--------|
+| `GET /{code}`               | SQLite, 1 worker (Run 1) | 747.80   | 65.0 ms | 103.9 ms | 132.8 ms | 0.0% |
+|                             | PostgreSQL, 1 worker  | 997.98   | 21.1 ms | 148.9 ms | 247.8 ms | 0.0%   |
+|                             | PostgreSQL, 4 workers | 1,542.04 | 30.1 ms | 55.9 ms  | 73.9 ms  | 0.0%   |
+| `GET /api/v1/links/{code}`  | SQLite, 1 worker (Run 1) | 1,421.72 | 34.3 ms | 52.7 ms | 64.3 ms | 0.0% |
+|                             | PostgreSQL, 1 worker  | 1,835.81 | 26.8 ms | 29.1 ms  | 47.2 ms  | 0.0%   |
+|                             | PostgreSQL, 4 workers | 4,696.43 | 10.4 ms | 12.1 ms  | 13.7 ms  | 0.0%   |
+| `POST /api/v1/links`        | SQLite, 1 worker (Run 1) | 286.56 | 14.1 ms | 94.1 ms  | 456.3 ms | 0.0% |
+|                             | PostgreSQL, 1 worker  | 383.08   | 25.0 ms | 34.4 ms  | 49.7 ms  | 0.0%   |
+|                             | PostgreSQL, 4 workers | 848.30   | 8.0 ms  | 22.3 ms  | 54.6 ms  | 0.0%   |
+
+**Throughput breakdown — database effect vs worker effect**
+
+| Endpoint                    | Database effect (SQLite → PostgreSQL, 1 worker) | Worker effect (PostgreSQL 1 → 4 workers) | Total (Run 1 → Run 2, 4 workers) |
+|-----------------------------|------------------|------------------|-------|
+| `GET /{code}`               | +33%             | 1.55×            | 2.06× |
+| `GET /api/v1/links/{code}`  | +29%             | 2.56×            | 3.30× |
+| `POST /api/v1/links`        | +34%             | 2.21×            | 2.96× |
+
+**Observations:**
+- **The database alone is worth ~+30% throughput**, remarkably consistent across all three endpoints (+29% to +34% at 1 worker).
+- **Most of the gain comes from the workers**, which PostgreSQL makes possible (SQLite is limited to 1 worker). Pure reads scale best: 2.56× with 4 workers out of a theoretical 4×, with `hey` and PostgreSQL sharing the same CPU.
+- **Write tail latency is the clearest win.** `POST` p99 drops from 456.3 ms (SQLite) to 49.7 ms with PostgreSQL at 1 worker: SQLite serialises every write behind a database-wide lock, PostgreSQL commits concurrent transactions in parallel.
+- **The click counter is the new bottleneck.** Every redirect runs `UPDATE links SET clicks_count = clicks_count + 1` on the *same row*. PostgreSQL queues concurrent updates of one row behind each other's commit (row lock), so:
+  - at 1 worker the redirect has a better median than SQLite (21.1 ms vs 65.0 ms) but **worse tail latency** (p99 247.8 ms vs 132.8 ms) — with a 50-connection pool, up to 50 updates queue on the same row;
+  - the redirect is the endpoint that scales worst with workers (1.55× vs 2.56× for pure reads).
+  
+  The read endpoint on the same configuration has a tight tail (p95 29.1 ms vs 148.9 ms for the redirect), which isolates the row update as the cause. This is the motivation for the planned write-behind click counter.
+- **`POST` median at 1 worker (25.0 ms) is worse than SQLite (14.1 ms)** but drops to 8.0 ms with 4 workers: the cost is the 10 concurrent requests queuing on a single Python process, not the PostgreSQL round-trip.
+- **Click counts are exact under concurrency:** after the 4-worker redirect warm-up and official run (2,000 + 10,000 requests), `clicks_count` was exactly 12,000.
+- **`POST` depends on an external site.** Each created link schedules a background inspection: an HTTP request to `https://www.example.com` followed by an `UPDATE`. Write results therefore include network variability and are less stable than read results. This applies to Run 1 as well, so the comparison holds.
+- **Pool sizing matters.** A first exploratory run with 4 workers and the initial pool (`pool_size: 20`, `max_overflow: 10` → up to 120 connections) produced HTTP 500 errors (`TooManyConnectionsError`) once PostgreSQL's 97 usable connections were exhausted. See section 3.2 for the sizing rules.
 
 ---
 
@@ -208,3 +291,4 @@ _Results to be recorded after the Redis cache milestone._
 |---------|------------|--------------------------------------------------------------------|
 | 0.1     | 2025-06-01 | Initial document — methodology, pre-conditions, commands, Run 1 skeleton |
 | 0.2     | 2026-10-08 | Added `-disable-redirects` note; executed and recorded Run 1 SQLite baseline results |
+| 0.3     | 2026-10-10 | Recorded Run 2 (PostgreSQL, 1 and 4 workers) with database vs worker breakdown; added pool sizing rules; warm-up at official-run concurrency; PostgreSQL pre-conditions; `./app.sh` start; corrected machine to M5 Max and Python to 3.14 |

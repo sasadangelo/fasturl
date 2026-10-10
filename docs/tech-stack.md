@@ -10,14 +10,14 @@ FastURL is a demo Python REST API built with FastAPI that demonstrates URL short
 | System type          | REST API / web service     |
 | Language             | Python 3.12                |
 | Architecture pattern | Layered — by layer         |
-| Deployment target    | Single process / monolith  |
+| Deployment target    | Monolith — 1 Uvicorn worker on SQLite, N workers on PostgreSQL |
 
 ## Stack Decisions
 | Component          | Choice                            | Version                               | Rationale                                                                                          |
 |--------------------|-----------------------------------|---------------------------------------|----------------------------------------------------------------------------------------------------|
 | App framework      | FastAPI                           | ≥ 0.115, < 0.116                      | Explicitly chosen in idea.md; async-native, built-in OpenAPI, first-class Pydantic v2 support      |
 | ASGI server        | Uvicorn                           | ≥ 0.34                                | Standard production-grade ASGI server for FastAPI                                                  |
-| ORM / data access  | SQLAlchemy (async) + aiosqlite    | SQLAlchemy ≥ 2.0, aiosqlite ≥ 0.21   | Explicitly chosen in idea.md; async 2.x API fits FastAPI's async model; zero extra services        |
+| ORM / data access  | SQLAlchemy (async) + aiosqlite / asyncpg | SQLAlchemy ≥ 2.0, aiosqlite ≥ 0.21, asyncpg ≥ 0.30 | Explicitly chosen in idea.md; async 2.x API fits FastAPI's async model; SQLite needs zero extra services, PostgreSQL enables multiple workers |
 | Validation         | Pydantic v2                       | ≥ 2.3, < 3                            | Already in pyproject.toml; bundled with FastAPI; enforces strict typed DTOs                        |
 | Configuration      | pydantic-settings + PyYAML        | pydantic-settings ≥ 2.2, pyyaml ≥ 6.0 | Already in pyproject.toml; typed config with YAML file + env var override                         |
 | HTTP client        | httpx (AsyncClient)               | ≥ 0.28                                | Non-blocking async HTTP for background URL inspection; replaces synchronous `requests`             |
@@ -29,7 +29,7 @@ FastURL is a demo Python REST API built with FastAPI that demonstrates URL short
 | Code quality       | ruff + mypy + pre-commit + bandit | already in pyproject.toml             | Full lint/format/typecheck/security pipeline already configured                                    |
 
 ## Trade-offs
-- **SQLite over PostgreSQL**: Zero-dependency persistence is ideal for a demo/blog project but cannot scale horizontally. Switching to PostgreSQL later requires only a connection string change and swapping `aiosqlite` for `asyncpg`.
+- **SQLite and PostgreSQL, selectable in `config.yaml`**: SQLite is zero-dependency and ideal for local development and tests, but its single-writer lock limits it to one Uvicorn worker. PostgreSQL (via `asyncpg`) supports multiple workers at the cost of an external service and per-worker connection pool sizing. The backend is chosen by keeping only its section active in `config.yaml`; the connection URL is built by the application and the PostgreSQL password lives in `.env`.
 - **BackgroundTasks over a message broker**: Simpler and dependency-free, but tasks are lost on process restart and cannot be distributed across workers. Adequate for the demo scope.
 - **requests replaced by httpx**: The existing `pyproject.toml` includes `requests` but the async inspection requirement mandates `httpx.AsyncClient`; `requests` should be removed from dependencies.
 
@@ -46,3 +46,4 @@ FastURL is a demo Python REST API built with FastAPI that demonstrates URL short
 | Version | Date       | Change                                                                     |
 |---------|------------|----------------------------------------------------------------------------|
 | 0.1     | 2025-05-15 | Initial stack decision — FastAPI, SQLAlchemy async, httpx, pytest-asyncio  |
+| 0.2     | 2026-10-10 | Added PostgreSQL (`asyncpg`) as alternative backend enabling multiple workers |

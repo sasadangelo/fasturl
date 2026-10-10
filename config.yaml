@@ -1,16 +1,51 @@
 app:
   host: "127.0.0.1"
   port: 8000
+  # Number of Uvicorn worker processes.
+  # NOTE: When using SQLite, workers MUST be set to 1 to avoid database lock contention.
+  # When using PostgreSQL, workers can be set > 1 (e.g. 4) for multi-process concurrency.
+  # Each worker has its own connection pool: keep workers * (pool_size + max_overflow)
+  # well below PostgreSQL max_connections (default 100, 97 usable by non-superusers).
+  workers: 4
   base_url: "http://localhost:8000"
   debug: false
   code_length: 7
 
+# =============================================================================
+# Database Configuration
+# FastURL supports SQLite (single-worker) and PostgreSQL (multi-worker).
+# Keep exactly one backend section active and comment out the other.
+# The connection URL is built by the application from these fields.
+# =============================================================================
 database:
-  url: "sqlite+aiosqlite:///instance/fasturl.db"
   echo: false
 
+  # ---------------------------------------------------------------------------
+  # SQLite (requires workers: 1)
+  # ---------------------------------------------------------------------------
+  sqlite:
+    path: "instance/fasturl.db"
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — the password is a secret: set DATABASE__POSTGRESQL__PASSWORD in .env
+  # ---------------------------------------------------------------------------
+  # postgresql:
+  #   host: "127.0.0.1"
+  #   port: 5432
+  #   name: "fasturl_db"
+  #   user: "fasturl_user"
+  #   # Connection pool, per worker process. Total connections = workers * (pool_size + max_overflow).
+  #   # Aim for ~2x the CPU cores in total (e.g. 4 workers * 10 = 40). More connections than that
+  #   # only add contention inside PostgreSQL. max_overflow: 0 keeps a fixed pool, so no connection
+  #   # is opened or closed under load (steadier latency in benchmarks).
+  #   pool_size: 15
+  #   max_overflow: 0
+  #   pool_timeout: 30
+  #   pool_recycle: 1800
+
 log:
-  level: "INFO"
+  # WARNING skips the per-request INFO logs; use INFO when debugging.
+  level: "WARNING"
   console: true
   file: "logs/fasturl.log"
   rotation: "10 MB"

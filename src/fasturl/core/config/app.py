@@ -15,6 +15,7 @@ class AppConfig(BaseSettings):
 
     host: str = Field(default="127.0.0.1", description="Bind address for the HTTP server.")
     port: int = Field(default=8000, description="TCP port the HTTP server listens on.")
+    workers: int = Field(default=1, ge=1, description="Number of worker processes for Uvicorn.")
     base_url: str = Field(default="http://localhost:8000", description="Public base URL of the application.")
     debug: bool = Field(default=False, description="Enable debug mode (verbose errors, auto-reload).")
     code_length: int = Field(default=7, description="Length of generated short-URL codes.")

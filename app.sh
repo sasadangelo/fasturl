@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# app.sh — avvia FastURL in modalità sviluppo
-# Uso: ./app.sh         → senza auto-reload (nessun warning semafori)
-#      ./app.sh --reload → con auto-reload (ricarica codice al salvataggio)
+# app.sh — start FastURL
+# Usage: ./app.sh          → start the server with the number of workers from config.yaml
+#        ./app.sh --reload → with auto-reload for local development (single worker)
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
-# Crea la directory del database se non esiste
-mkdir -p instance
+# Read the configuration from config.yaml through the application settings
+HOST=$(PYTHONPATH=src uv run python -c "from fasturl.core.config import settings; print(settings.app.host)" 2>/dev/null || echo "127.0.0.1")
+PORT=$(PYTHONPATH=src uv run python -c "from fasturl.core.config import settings; print(settings.app.port)" 2>/dev/null || echo "8000")
+WORKERS=$(PYTHONPATH=src uv run python -c "from fasturl.core.config import settings; print(settings.app.workers)" 2>/dev/null || echo "1")
 
-RELOAD_FLAG=""
 if [[ "${1:-}" == "--reload" ]]; then
-  RELOAD_FLAG="--reload"
+  PYTHONPATH=src uv run python -m fasturl.core.config 1 || true
+  echo "Starting FastURL in development mode with --reload on ${HOST}:${PORT} (single worker)..."
+  PYTHONPATH=src uv run uvicorn fasturl.main:app \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    --reload
+else
+  PYTHONPATH=src uv run python -m fasturl.core.config "${WORKERS}" || true
+  echo "Starting FastURL on ${HOST}:${PORT} with ${WORKERS} worker(s)..."
+  PYTHONPATH=src uv run uvicorn fasturl.main:app \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    --workers "${WORKERS}"
 fi
-
-PYTHONPATH=src uv run uvicorn fasturl.main:app \
-  --host 127.0.0.1 \
-  --port 8000 \
-  $RELOAD_FLAG

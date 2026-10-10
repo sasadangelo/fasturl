@@ -48,7 +48,7 @@ src/fasturl/
 │   └── __init__.py            ← SQLAlchemy ORM models (LinkDAO)
 └── core/
     ├── __init__.py
-    ├── config.py               ← Pydantic Settings + config.yaml loader
+    ├── config/                 ← Pydantic Settings + config.yaml/.env loader (one module per section)
     └── log.py                  ← Loguru structured logging setup
 ```
 
@@ -237,20 +237,38 @@ Three handlers are registered globally in `main.py`:
 
 ### Configuration
 
-`core/config.py` loads `config.yaml` via `pydantic-settings` into a single typed `Settings` object.
-Environment variables override YAML values (e.g. `DATABASE__URL`).
+`core/config/` loads `config.yaml` and `.env` via `pydantic-settings` into a single typed `Settings` object.
+`config.yaml` holds all non-secret settings; secrets live only in `.env` (template: `.env.example`).
+Environment variables override YAML values, with `__` as the nesting separator
+(e.g. `DATABASE__POSTGRESQL__PASSWORD` → `database.postgresql.password`).
 The app fails fast at startup if any required field is missing or malformed — no silent defaults in production paths.
 
 ```
-config.yaml
+config.yaml + .env
     │
     ▼
-core/config.py   Settings(BaseSettings)
-    ├── app:     host, port, base_url, debug
-    ├── database: url, echo
-    ├── log:     level, console, file, rotation, retention, compression
+core/config/   Settings(BaseSettings)
+    ├── app:       host, port, workers, base_url, debug, code_length
+    ├── database:  echo + exactly one backend section
+    │     ├── sqlite:      path
+    │     └── postgresql:  host, port, name, user, password (.env),
+    │                      pool_size, max_overflow, pool_timeout, pool_recycle
+    ├── log:       level, console, file, rotation, retention, compression
     └── inspector: timeout_seconds, max_redirects
 ```
+
+**Database backend selection.** Exactly one of `database.sqlite` / `database.postgresql` is active in
+`config.yaml`; the other is commented out. With neither, SQLite with defaults is used; with both, startup fails.
+The SQLAlchemy URL is never written in configuration: `DatabaseConfig.url` builds it from the active section
+(`sqlite+aiosqlite:///<path>` or `postgresql+asyncpg://<user>:<password>@<host>:<port>/<name>`).
+An active PostgreSQL section without a password fails at startup.
+
+**Workers and connection pool.** SQLite requires `app.workers: 1`. With PostgreSQL each Uvicorn worker is a
+separate process with its own pool, so `workers × (pool_size + max_overflow)` must stay below PostgreSQL
+`max_connections` (default 100, 97 usable by non-superusers).
+
+**Startup summary.** `app.sh` runs `python -m fasturl.core.config` once (parent process only) to print the
+effective server, database (password masked), pool and logging settings before Uvicorn starts.
 
 ### Logging
 
@@ -323,3 +341,4 @@ FastAPI app (main.py)
 | 0.2     | 2025-05-15 | Added Component Design, Cross-Cutting Concerns, Request Flow Diagram            |
 | 0.3     | 2025-05-22 | Added JS-008 component design (manual re-inspection trigger)                    |
 | 0.4     | 2025-05-23 | Moved background-task dispatch from router to service layer; renamed `Link` → `LinkDAO`; added `InspectorService` and `BackgroundTaskScheduler` protocol |
+| 0.5     | 2026-10-10 | PostgreSQL support: per-backend database config sections, URL built from fields, password in `.env`, multi-worker pool sizing, startup config summary |

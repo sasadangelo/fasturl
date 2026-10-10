@@ -20,6 +20,8 @@ Inject ``get_db`` into any router that needs a database session::
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -29,7 +31,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from fasturl.core.config import settings
-from fasturl.models.link import Base
+from fasturl.models import Base
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -42,9 +44,28 @@ async def init_db() -> None:
     """
     global _engine, _session_factory
 
+    engine_kwargs: dict[str, Any] = {
+        "echo": settings.database.echo,
+    }
+
+    postgresql = settings.database.postgresql
+    sqlite = settings.database.sqlite
+    if postgresql is not None:
+        engine_kwargs.update(
+            {
+                "pool_size": postgresql.pool_size,
+                "max_overflow": postgresql.max_overflow,
+                "pool_timeout": postgresql.pool_timeout,
+                "pool_recycle": postgresql.pool_recycle,
+                "pool_pre_ping": True,
+            }
+        )
+    elif sqlite is not None:
+        Path(sqlite.path).parent.mkdir(parents=True, exist_ok=True)
+
     _engine = create_async_engine(
         url=settings.database.url,
-        echo=settings.database.echo,
+        **engine_kwargs,
     )
     _session_factory = async_sessionmaker(
         bind=_engine,
@@ -77,4 +98,10 @@ async def get_db() -> AsyncIterator[AsyncSession]:
     if _session_factory is None:
         raise RuntimeError("Database not initialised — call init_db() at startup.")
     async with _session_factory() as session:
-        yield session
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

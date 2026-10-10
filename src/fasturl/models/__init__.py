@@ -4,4 +4,6 @@
 # -----------------------------------------------------------------------------
 """SQLAlchemy ORM models — LinkDAO table definition."""
 
-__all__: list[str] = []
+from fasturl.models.link import Base, LinkDAO
+
+__all__ = ["Base", "LinkDAO"]

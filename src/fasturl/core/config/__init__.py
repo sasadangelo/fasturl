@@ -7,7 +7,7 @@ Import the module-level singleton in any module that needs configuration::
     from fasturl.core.config import settings
 
     print(settings.app.host)
-    print(settings.database.url)
+    print(settings.database.backend)
 
 Never instantiate ``Settings()`` anywhere else.
 """
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
+        env_nested_delimiter="__",
         extra="ignore",
     )
 

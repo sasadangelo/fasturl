@@ -120,11 +120,11 @@ FastURL is a high-performance REST API built with FastAPI that provides URL shor
 | Category                    | Requirement                                                                                                                                           |
 |-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Performance**             | API endpoint response latency < 50ms at p95 for redirection and CRUD operations (excluding target URL background inspection).                         |
-| **Concurrency & Async**     | Non-blocking asynchronous I/O using FastAPI, `httpx.AsyncClient`, and `SQLAlchemy` with `aiosqlite`.                                                  |
+| **Concurrency & Async**     | Non-blocking asynchronous I/O using FastAPI, `httpx.AsyncClient`, and async `SQLAlchemy` (`aiosqlite` / `asyncpg`). Multiple Uvicorn workers with PostgreSQL. |
 | **Inspector Limits**        | Configurable HTTP request timeout (default: 5.0s) and max redirect limit (default: 3) for target inspection to avoid hanging connections.             |
 | **Logging & Observability** | Structured logging with Loguru; file rotation (10 MB), retention (7 days), compression (zip), and console formatting. No sensitive payload logging.    |
-| **Configuration**           | Fail-fast typed configuration via Pydantic Settings with YAML support (`config.yaml`) and environment variable overrides.                              |
-| **Persistence**             | SQLite with async driver (`aiosqlite`) via SQLAlchemy ORM.                                                                                            |
+| **Configuration**           | Fail-fast typed configuration via Pydantic Settings with YAML support (`config.yaml`) and environment variable overrides. Secrets (database password) only in `.env`, never in `config.yaml`. |
+| **Persistence**             | SQLite (`aiosqlite`, single worker) or PostgreSQL (`asyncpg`, multi-worker) via SQLAlchemy ORM, selected in `config.yaml`.                            |
 
 ## Out of Scope
 - User authentication and authorization (RBAC / API keys / OAuth2) — planned for a future milestone.
@@ -143,3 +143,4 @@ FastURL is a high-performance REST API built with FastAPI that provides URL shor
 | 0.1     | 2025-05-15 | Initial requirements extracted from idea.md covering Link CRUD, Redirection, and Background Inspection                                                    |
 | 0.2     | 2025-05-15 | Integrated key system design concepts: Base62 7-char keyspace, temporary redirect semantics (307/302 for metrics), and lazy link expiration (410 Gone)   |
 | 0.3     | 2025-05-22 | Added JS-008 (Manual Re-Inspection trigger) and Business Constraint #7                                                                                    |
+| 0.4     | 2026-10-10 | Persistence: PostgreSQL added as alternative backend; secrets moved to `.env`                                                                             |
