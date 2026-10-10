@@ -20,7 +20,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from httpx._models import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fasturl.models.link import LinkDAO
@@ -73,7 +72,7 @@ class TestRedirectEndpoint:
         """A GET on an active, non-expired code returns 307 with a Location header."""
         await _seed_link(db_session, code="redir01", target_url="https://example.com/dest")
 
-        response: Response = await api_client.get(url="/redir01", follow_redirects=False)
+        response: httpx.Response = await api_client.get(url="/redir01", follow_redirects=False)
 
         assert response.status_code == 307
         assert response.headers["location"] == "https://example.com/dest"
@@ -121,14 +120,14 @@ class TestRedirectEndpoint:
         """A GET on a soft-deleted (inactive) link returns 404."""
         await _seed_link(db_session, code="redir03", is_active=False)
 
-        response: Response = await api_client.get(url="/redir03", follow_redirects=False)
+        response: httpx.Response = await api_client.get(url="/redir03", follow_redirects=False)
 
         assert response.status_code == 404
         assert response.json()["error"] == "LINK_NOT_FOUND"
 
     async def test_nonexistent_code_returns_404(self, api_client: httpx.AsyncClient) -> None:
         """A GET on a code that does not exist returns 404."""
-        response: Response = await api_client.get(url="/aaaaaaa", follow_redirects=False)
+        response: httpx.Response = await api_client.get(url="/aaaaaaa", follow_redirects=False)
 
         assert response.status_code == 404
         assert response.json()["error"] == "LINK_NOT_FOUND"
@@ -142,7 +141,7 @@ class TestRedirectEndpoint:
         past: datetime = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
         await _seed_link(db_session, code="redir04", expires_at=past)
 
-        response: Response = await api_client.get(url="/redir04", follow_redirects=False)
+        response: httpx.Response = await api_client.get(url="/redir04", follow_redirects=False)
 
         assert response.status_code == 410
         assert response.json()["error"] == "LINK_EXPIRED"
@@ -155,6 +154,6 @@ class TestRedirectEndpoint:
         """The redirect uses 307 (temporary) to prevent browser caching per BC-5."""
         await _seed_link(db_session, code="redir05", target_url="https://example.com")
 
-        response: Response = await api_client.get(url="/redir05", follow_redirects=False)
+        response: httpx.Response = await api_client.get(url="/redir05", follow_redirects=False)
 
         assert response.status_code == 307

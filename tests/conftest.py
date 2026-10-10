@@ -25,7 +25,6 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from httpx._transports.asgi import ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 
@@ -84,7 +83,7 @@ async def api_client(db_session: AsyncSession) -> AsyncIterator[httpx.AsyncClien
     app.dependency_overrides[get_db] = _override_get_db
     app.state.http_client = httpx.AsyncClient()  # stub; intercepted per-test via respx
 
-    transport: ASGITransport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
+    transport: httpx.ASGITransport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
