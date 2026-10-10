@@ -7,7 +7,7 @@ requires-python = ">=3.10,<3.15"
 dependencies = [
   "aiosqlite>=0.21",
   "asyncpg>=0.30.0",
-  "fastapi>=0.115,<0.116",
+  "fastapi>=0.143,<1",
   "httpx>=0.28",
   "loguru>=0.7",
   "pydantic>=2.3,<3",
