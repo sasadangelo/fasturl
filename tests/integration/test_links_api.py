@@ -21,8 +21,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta, timezone
 
 import httpx
-from httpx._client import AsyncClient
-from httpx._models import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from fasturl.models.link import LinkDAO
@@ -49,7 +47,7 @@ class TestCreateLink:
 
     async def test_auto_code_returns_201(self, api_client: httpx.AsyncClient) -> None:
         """A valid payload without custom_code returns 201 with a generated code."""
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com/article"},
         )
@@ -61,7 +59,7 @@ class TestCreateLink:
 
     async def test_custom_alias_returns_201(self, api_client: httpx.AsyncClient) -> None:
         """A valid payload with custom_code returns 201 bound to that code."""
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com", "custom_code": "mybrand1"},
         )
@@ -81,7 +79,7 @@ class TestCreateLink:
 
         FastAPI's global RequestValidationError handler normalises 422 → 400.
         """
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "ftp://example.com/file"},
         )
@@ -90,7 +88,7 @@ class TestCreateLink:
 
     async def test_self_redirect_returns_400(self, api_client: httpx.AsyncClient) -> None:
         """A target URL pointing at the service itself returns 400."""
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "http://localhost:8000/some/path"},
         )
@@ -103,7 +101,7 @@ class TestCreateLink:
         FastAPI's global RequestValidationError handler normalises 422 → 400.
         """
         past: str = (datetime.now(tz=timezone.utc) - timedelta(days=1)).isoformat()
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com", "expires_at": past},
         )
@@ -115,7 +113,7 @@ class TestCreateLink:
 
         FastAPI's global RequestValidationError handler normalises 422 → 400.
         """
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com", "custom_code": "bad alias!"},
         )
@@ -124,7 +122,7 @@ class TestCreateLink:
 
     async def test_future_expiry_is_accepted(self, api_client: httpx.AsyncClient) -> None:
         """A valid payload with a future expires_at returns 201."""
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com", "expires_at": _future_iso()},
         )
@@ -136,7 +134,7 @@ class TestCreateLink:
         expires_utc = (datetime.now(UTC) + timedelta(days=30)).replace(microsecond=0)
         expires_rome = expires_utc.astimezone(timezone(timedelta(hours=2)))
 
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "https://example.com", "expires_at": expires_rome.isoformat()},
         )
@@ -146,7 +144,7 @@ class TestCreateLink:
 
     async def test_response_contains_error_envelope_on_failure(self, api_client: httpx.AsyncClient) -> None:
         """Error responses follow the standardised envelope schema."""
-        response: Response = await api_client.post(
+        response: httpx.Response = await api_client.post(
             url="/api/v1/links",
             json={"target_url": "http://localhost:8000/loop"},
         )
@@ -166,14 +164,14 @@ class TestListLinks:
 
     async def test_empty_collection_returns_empty_list(self, api_client: httpx.AsyncClient) -> None:
         """With no links in the DB the endpoint returns an empty array."""
-        response: Response = await api_client.get(url="/api/v1/links")
+        response: httpx.Response = await api_client.get(url="/api/v1/links")
         assert response.status_code == 200
         assert response.json() == []
 
     async def test_created_link_appears_in_list(self, api_client: httpx.AsyncClient) -> None:
         """A link created via POST appears in the subsequent GET list."""
         await api_client.post("/api/v1/links", json={"target_url": "https://example.com"})
-        response: Response = await api_client.get(url="/api/v1/links")
+        response: httpx.Response = await api_client.get(url="/api/v1/links")
         assert response.status_code == 200
         assert len(response.json()) == 1
 
@@ -184,7 +182,9 @@ class TestListLinks:
     ) -> None:
         """Filtering by status=active returns only active links."""
         # Create a link then manually push it to 'active' via the repository
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
         repo: LinkRepository = LinkRepository(session=db_session)
         await repo.update_inspection(
@@ -197,14 +197,14 @@ class TestListLinks:
             image_url=None,
         )
 
-        response: Response = await api_client.get(url="/api/v1/links?status=active")
+        response: httpx.Response = await api_client.get(url="/api/v1/links?status=active")
         assert response.status_code == 200
         statuses = [item["inspection"]["status"] for item in response.json()]
         assert all(s == "active" for s in statuses)
 
     async def test_filter_by_invalid_status_returns_400(self, api_client: httpx.AsyncClient) -> None:
         """Requesting an unsupported status value returns 400."""
-        response: Response = await api_client.get(url="/api/v1/links?status=bogus")
+        response: httpx.Response = await api_client.get(url="/api/v1/links?status=bogus")
         assert response.status_code == 400
         assert response.json()["error"] == "VALIDATION_ERROR"
 
@@ -219,10 +219,12 @@ class TestGetLink:
 
     async def test_existing_code_returns_200(self, api_client: httpx.AsyncClient) -> None:
         """A known code returns 200 with the full link payload."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
 
-        response: Response = await api_client.get(url=f"/api/v1/links/{code}")
+        response: httpx.Response = await api_client.get(url=f"/api/v1/links/{code}")
         assert response.status_code == 200
         data = response.json()
         assert data["code"] == code
@@ -231,7 +233,7 @@ class TestGetLink:
 
     async def test_nonexistent_code_returns_404(self, api_client: httpx.AsyncClient) -> None:
         """A code that does not exist returns 404 with LINK_NOT_FOUND."""
-        response: Response = await api_client.get(url="/api/v1/links/aaaaaaa")
+        response: httpx.Response = await api_client.get(url="/api/v1/links/aaaaaaa")
         assert response.status_code == 404
         assert response.json()["error"] == "LINK_NOT_FOUND"
 
@@ -246,25 +248,29 @@ class TestDeleteLink:
 
     async def test_existing_link_returns_204(self, api_client: httpx.AsyncClient) -> None:
         """Deleting an existing link returns 204 No Content."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
 
-        response: Response = await api_client.delete(url=f"/api/v1/links/{code}")
+        response: httpx.Response = await api_client.delete(url=f"/api/v1/links/{code}")
         assert response.status_code == 204
 
     async def test_nonexistent_link_returns_404(self, api_client: httpx.AsyncClient) -> None:
         """Deleting a non-existent code returns 404."""
-        response: Response = await api_client.delete(url="/api/v1/links/aaaaaaa")
+        response: httpx.Response = await api_client.delete(url="/api/v1/links/aaaaaaa")
         assert response.status_code == 404
         assert response.json()["error"] == "LINK_NOT_FOUND"
 
     async def test_deleted_link_no_longer_active(self, api_client: httpx.AsyncClient) -> None:
         """After soft-delete, the link is inactive (GET returns is_active=false)."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
         await api_client.delete(url=f"/api/v1/links/{code}")
 
-        get_resp: Response = await api_client.get(url=f"/api/v1/links/{code}")
+        get_resp: httpx.Response = await api_client.get(url=f"/api/v1/links/{code}")
         assert get_resp.status_code == 200
         assert get_resp.json()["is_active"] is False
 
@@ -279,32 +285,38 @@ class TestTriggerInspection:
 
     async def test_existing_link_returns_202(self, api_client: httpx.AsyncClient) -> None:
         """Triggering re-inspection on an existing link returns 202."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
 
-        response: Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
+        response: httpx.Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
         assert response.status_code == 202
 
     async def test_inspection_status_reset_to_pending(self, api_client: httpx.AsyncClient) -> None:
         """After triggering re-inspection the status is reset to pending_analysis."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
 
-        response: Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
+        response: httpx.Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
         assert response.json()["inspection"]["status"] == "pending_analysis"
 
     async def test_nonexistent_link_returns_404(self, api_client: httpx.AsyncClient) -> None:
         """Triggering re-inspection on a missing code returns 404."""
-        response: Response = await api_client.post(url="/api/v1/links/aaaaaaa/inspect")
+        response: httpx.Response = await api_client.post(url="/api/v1/links/aaaaaaa/inspect")
         assert response.status_code == 404
         assert response.json()["error"] == "LINK_NOT_FOUND"
 
     async def test_already_pending_is_accepted_idempotent(self, api_client: httpx.AsyncClient) -> None:
         """Re-triggering when status is already pending_analysis still returns 202."""
-        post_resp: Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        post_resp: httpx.Response = await api_client.post(
+            url="/api/v1/links", json={"target_url": "https://example.com"}
+        )
         code = post_resp.json()["code"]
         # LinkDAO starts in pending_analysis — trigger again
-        response: Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
+        response: httpx.Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
         assert response.status_code == 202
 
 
@@ -337,8 +349,10 @@ class TestInspectLinkDirect:
 
         # Build a mock HTTP response that simulates a successful 200 HTML page
         html_body = "<html><head><title>Example</title></head></html>"
-        mock_response: Response = httpx.Response(status_code=200, text=html_body)
-        mock_client: AsyncClient = httpx.AsyncClient(transport=httpx.MockTransport(handler=lambda req: mock_response))
+        mock_response: httpx.Response = httpx.Response(status_code=200, text=html_body)
+        mock_client: httpx.AsyncClient = httpx.AsyncClient(
+            transport=httpx.MockTransport(handler=lambda req: mock_response)
+        )
         repo: LinkRepository = LinkRepository(session=db_session)
 
         await inspect_link(
@@ -376,7 +390,7 @@ class TestInspectLinkDirect:
         def _raise_timeout(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectTimeout(message="timeout", request=request)
 
-        mock_client: AsyncClient = httpx.AsyncClient(transport=httpx.MockTransport(handler=_raise_timeout))
+        mock_client: httpx.AsyncClient = httpx.AsyncClient(transport=httpx.MockTransport(handler=_raise_timeout))
         repo: LinkRepository = LinkRepository(session=db_session)
 
         await inspect_link(
