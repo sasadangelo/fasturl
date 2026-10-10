@@ -279,9 +279,63 @@ _DB size: small; not reset between configurations — each `POST` run adds ~1,10
 
 ---
 
-### 6.3 Run 3 — PostgreSQL + Redis cache _(planned)_
+### 6.3 Roadmap — Runs 3 to 5 _(planned)_
 
-_Results to be recorded after the Redis cache milestone._
+**Target.** The reference capacity estimate for a URL shortener (500M new URLs/month, 100:1 read/write ratio) is
+**~200 creations/s** and **~20,000 redirects/s**. After Run 2, creations are already above target (848 req/s with
+4 workers), while redirects are ~13× below it (1,542 req/s). The next runs change **one variable at a time** to
+show which change moves the redirect hot path, and by how much.
+
+| Run | Change | Variable isolated | Hypothesis (to be verified) |
+|-----|--------|-------------------|-----------------------------|
+| 3   | PostgreSQL with 8 and 12 workers | Number of workers | Reads keep scaling, sub-linearly (18 cores shared with `hey` and PostgreSQL; gains likely flatten past the 6 performance cores). Redirects barely move: the bottleneck is the row-lock queue on `clicks_count`, not CPU, and more workers make the queue longer. |
+| 4   | + Redis cache of `code → target_url` (best worker count from Run 3) | DB read on the redirect path | Modest redirect gain: the PostgreSQL lookup disappears, but the per-redirect `UPDATE` remains. |
+| 5   | + write-behind click counter (Redis `INCR`, periodic flush to PostgreSQL) | DB write on the redirect path | The large step: the redirect becomes a Redis read + `INCR`, so it should approach (or exceed) the pure-read endpoint. |
+
+#### Run 3 — scaling workers
+
+Pool sizing follows section 3.2 (`pool_size ≥ c ÷ workers`, total below 97 connections):
+
+| Workers | `-c` | Requests per worker | `pool_size` | `max_overflow` | Total connections |
+|---------|------|---------------------|-------------|----------------|-------------------|
+| 8       | 50   | ~6–7                | 8           | 0              | 64                |
+| 12      | 50   | ~4–5                | 6           | 0              | 72                |
+
+- With 12 workers, `-c 50` gives each worker only 4–5 concurrent requests and may not saturate them. Raising `-c`
+  (e.g. 200 → ~17 per worker → 204 connections) exceeds PostgreSQL's 97 usable connections: it requires raising
+  `max_connections` or adding a connection pooler (PgBouncer). If tried, record it as a separate configuration.
+- Monitor CPU during the runs (`top -o cpu`). If `hey` or PostgreSQL saturate a core, the machine — not FastURL — has
+  become the limit and further worker increases are not meaningful on this host.
+
+#### Run 4 — Redis cache
+
+- The redirect resolves `code → target_url` from Redis; on a miss it reads PostgreSQL and populates the cache.
+- **Invalidation:** a deleted or expired link must be removed from Redis, otherwise it keeps redirecting. Each key
+  gets a TTL no later than the link's `expires_at`.
+- Keep the worker count fixed at the best value from Run 3.
+
+#### Run 5 — write-behind click counter
+
+- The redirect performs only a Redis read and a Redis `INCR`; a separate process periodically flushes the counters
+  (and `last_clicked_at`) to PostgreSQL.
+- **Trade-offs to document with the results:**
+  - `clicks_count` in PostgreSQL lags the real count by up to one flush interval (eventual consistency).
+  - If Redis fails before a flush, the clicks counted since the last flush are lost — usually acceptable for
+    analytics, but it is a deliberate choice.
+
+#### Protocol for every run
+
+- Same machine, same `hey` parameters and warm-up as Runs 1–2 (sections 3.2–3.3).
+- Always measure **both** `GET /{code}` and `GET /api/v1/links/{code}`: the gap between redirect and pure read is
+  what shows the cost of the redirect's database work.
+- `POST /api/v1/links` is already above target; measure it again only if a change touches the write path.
+
+#### Beyond a single machine
+
+20,000 redirects/s is not reachable — nor measurable — on one laptop: at ~1,200 req/s per worker (pure reads) it
+needs ~17–20 workers, i.e. several hosts behind a load balancer, with `hey` on a separate machine. High availability
+(PostgreSQL replicas and failover, replicated Redis) and partitioning for billions of rows are out of scope for these
+runs.
 
 ---
 
@@ -356,3 +410,4 @@ Reference DDL: `sql/sqlite/schema.sql`, `sql/postgres/02-schema.sql`. All timest
 | 0.2     | 2026-10-08 | Added `-disable-redirects` note; executed and recorded Run 1 SQLite baseline results |
 | 0.3     | 2026-10-10 | Recorded Run 2 (PostgreSQL, 1 and 4 workers) with database vs worker breakdown; added pool sizing rules; warm-up at official-run concurrency; PostgreSQL pre-conditions; `./app.sh` start; corrected machine to M5 Max and Python to 3.14 |
 | 0.4     | 2026-10-10 | Added section 7, migrating from SQLite to PostgreSQL (local, Docker Compose, tests, schema differences) |
+| 0.5     | 2026-10-10 | Section 6.3: roadmap for Runs 3–5 (worker scaling, Redis cache, write-behind click counter) with hypotheses, pool sizing and protocol |
