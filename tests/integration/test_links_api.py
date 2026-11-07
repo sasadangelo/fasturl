@@ -319,6 +319,17 @@ class TestTriggerInspection:
         response: httpx.Response = await api_client.post(url=f"/api/v1/links/{code}/inspect")
         assert response.status_code == 202
 
+    async def test_inspection_reads_title_of_target_page(self, api_client: httpx.AsyncClient) -> None:
+        """The background inspection runs against the fake page and stores its title."""
+        created: httpx.Response = await api_client.post(url="/api/v1/links", json={"target_url": "https://example.com"})
+        code: str = created.json()["code"]
+
+        response: httpx.Response = await api_client.get(url=f"/api/v1/links/{code}")
+
+        inspection = response.json()["inspection"]
+        assert inspection["status"] == "active"
+        assert inspection["title"] == "Example Domain"
+
 
 # ---------------------------------------------------------------------------
 # Background inspection (direct coroutine invocation)

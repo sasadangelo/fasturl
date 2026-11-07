@@ -5,8 +5,8 @@
 """Shared pytest fixtures for unit and integration tests.
 
 Unit fixtures: async-capable stubs for LinkRepository and httpx.AsyncClient.
-Integration fixtures: real database engine and AsyncSession, FastAPI
-ASGI client with the DB dependency overridden.
+Integration fixtures: real database engine and AsyncSession, a fake HTTP
+client for the inspector, FastAPI ASGI client with both dependencies overridden.
 
 Integration tests use an in-memory SQLite database by default. Set
 ``TEST_DATABASE_URL`` to run them against another database, e.g. PostgreSQL::
@@ -28,6 +28,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.asyncio.engine import AsyncEngine
 
+from fasturl.api.dependencies import get_http_client
 from fasturl.core.database import get_db
 from fasturl.main import app
 from fasturl.models.link import Base
@@ -62,33 +63,51 @@ async def db_session() -> AsyncIterator[AsyncSession]:
 
 
 # ---------------------------------------------------------------------------
-# Integration — FastAPI ASGI client with DB dependency overridden
+# Integration — fake outside world for the background inspector
+# ---------------------------------------------------------------------------
+
+FAKE_PAGE: str = "<html><head><title>Example Domain</title></head></html>"
+
+
+def _fake_target(request: httpx.Request) -> httpx.Response:
+    """Answer every outbound request with a small HTML page."""
+    return httpx.Response(status_code=200, text=FAKE_PAGE)
+
+
+@pytest.fixture()
+async def http_client() -> AsyncIterator[httpx.AsyncClient]:
+    """Yield an httpx.AsyncClient whose network layer never leaves the process."""
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler=_fake_target)) as client:
+        yield client
+
+
+# ---------------------------------------------------------------------------
+# Integration — FastAPI ASGI client with dependencies overridden
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture()
-async def api_client(db_session: AsyncSession) -> AsyncIterator[httpx.AsyncClient]:
+async def api_client(db_session: AsyncSession, http_client: httpx.AsyncClient) -> AsyncIterator[httpx.AsyncClient]:
     """Yield an httpx.AsyncClient driving the FastAPI app in-process.
 
     The ``get_db`` dependency is overridden to inject the test session so that
     every request shares the same in-memory database as the test body.
 
-    A stub httpx.AsyncClient is stored on ``app.state.http_client`` so that the
-    ``HTTPClientDep`` dependency resolves without a real lifespan.
+    The ``get_http_client`` dependency is overridden with the ``http_client``
+    fixture, so the background inspector never makes a real network call.
     """
 
     async def _override_get_db() -> AsyncIterator[AsyncSession]:
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
-    app.state.http_client = httpx.AsyncClient()  # stub; intercepted per-test via respx
+    app.dependency_overrides[get_http_client] = lambda: http_client
 
     transport: httpx.ASGITransport = httpx.ASGITransport(app=app)  # type: ignore[arg-type]
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
     app.dependency_overrides.clear()
-    await app.state.http_client.aclose()
 
 
 # ---------------------------------------------------------------------------

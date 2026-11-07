@@ -43,7 +43,7 @@ DBSessionDep: TypeAlias = Annotated[AsyncSession, Depends(dependency=get_db)]
 # ---------------------------------------------------------------------------
 
 
-def _get_http_client(request: Request) -> httpx.AsyncClient:
+def get_http_client(request: Request) -> httpx.AsyncClient:
     """Return the shared ``httpx.AsyncClient`` stored in ``app.state``.
 
     Args:
@@ -55,7 +55,7 @@ def _get_http_client(request: Request) -> httpx.AsyncClient:
     return request.app.state.http_client
 
 
-HTTPClientDep: TypeAlias = Annotated[httpx.AsyncClient, Depends(dependency=_get_http_client)]
+HTTPClientDep: TypeAlias = Annotated[httpx.AsyncClient, Depends(dependency=get_http_client)]
 
 
 # ---------------------------------------------------------------------------
