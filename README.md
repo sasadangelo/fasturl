@@ -226,4 +226,4 @@ Each layer only calls the one below it: routers → services → repositories �
 
 ## License
 
-MIT. Copyright (c) 2025 Salvatore D'Angelo, Code4Projects.
+[MIT](LICENSE.md). Copyright (c) 2025 Salvatore D'Angelo, Code4Projects.

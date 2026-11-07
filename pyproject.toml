@@ -1,8 +1,10 @@
 [project]
 name = "fasturl"
 version = "0.1.0"
-description = "A Python project based on python-blueprint"
+description = "An asynchronous URL shortener built with FastAPI, SQLAlchemy and httpx"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.md"]
 requires-python = ">=3.10,<3.15"
 dependencies = [
   "aiosqlite>=0.21",
